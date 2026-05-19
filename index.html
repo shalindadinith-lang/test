@@ -67,8 +67,6 @@
         .date-label { margin-right: 5px; font-weight: bold; white-space: nowrap; }
         .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-        /* No global print hiding – we use separate print window */
-        
         @media (max-width: 768px) {
             body { padding: 10px; }
             .container { padding: 15px 12px; border-radius: 20px; }
@@ -1121,7 +1119,6 @@ async function getSaleData(saleId) {
     return result;
 }
 
-// THIS WAS MISSING – ensures sale data is cached for printing
 async function ensureSaleDataCache(id) {
     if (billCache[id]) return billCache[id];
     const snap = await db.collection('sales').doc(id).get();
@@ -1172,7 +1169,7 @@ async function viewBill(saleId) {
     } catch (err) { alert("Error: " + err.message); }
 }
 
-// FIXED PRINT FUNCTION – uses ensureSaleDataCache
+// ========== CORRECTED PRINT FUNCTION – 9 BILLS PER PAGE (3×3 GRID) ==========
 async function printSelectedBills() {
     if (selectedSales.size === 0) { alert("Please select at least one bill to print."); return; }
     const saleIds = Array.from(selectedSales);
@@ -1213,7 +1210,6 @@ async function printSelectedBills() {
         body { background: white; padding: 8mm; }
         .bill-page { page-break-after: always; }
         .bill-page:last-child { page-break-after: auto; }
-        /* Grid: 3 columns, 3 rows per page (auto height) */
         .bill-page {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -1241,27 +1237,6 @@ async function printSelectedBills() {
         }
     </style></head><body>${pagesHtml}</body></html>`;
     
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(fullHtml);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-    setTimeout(() => { printWindow.close(); }, 500);
-}
-    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Print Bills</title><style>
-        *{ margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',Arial,sans-serif; }
-        body{ padding:10mm; background:white; }
-        .print-bill-container{ page-break-after:always; margin-bottom:10mm; }
-        .print-bill-container:last-child{ page-break-after:auto; }
-        .mini-bill-print{ border:1px solid #000; padding:6mm; border-radius:8px; max-width:100%; background:#fff; }
-        .bill-header{ font-size:14pt; font-weight:bold; text-align:center; margin:5px 0; }
-        .bill-customer{ margin:8px 0; padding-bottom:5px; border-bottom:1px dashed #aaa; }
-        table{ width:100%; border-collapse:collapse; margin:8px 0; }
-        th, td{ border:1px solid #999; padding:4px; text-align:left; }
-        .bill-total{ text-align:right; margin-top:8px; font-size:12pt; }
-        .logo-print-img{ max-width:100px; margin-bottom:5px; }
-        @media print{ body{ padding:0; } }
-    </style></head><body>${billsHtml.join('')}</body></html>`;
     const printWindow = window.open('', '_blank');
     printWindow.document.write(fullHtml);
     printWindow.document.close();
