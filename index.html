@@ -1181,27 +1181,73 @@ async function printSelectedBills() {
         const data = await ensureSaleDataCache(id);
         if (!data) continue;
         const { customer, items } = data;
-        let itemsHtml = `<table><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>`;
-        items.forEach(it => { itemsHtml += `<tr><td>${escapeHtml(it.name)}</td><td>Rs. ${it.price.toFixed(2)}</td><td>${it.qty}</td><td>Rs. ${it.total.toFixed(2)}</td></tr>`; });
+        let itemsHtml = `<table class="bill-items-table"><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>`;
+        items.forEach(it => { itemsHtml += `<tr><td>${escapeHtml(it.name)}</td><td>Rs.${it.price.toFixed(2)}</td><td>${it.qty}</td><td>Rs.${it.total.toFixed(2)}</td></tr>`; });
         itemsHtml += `</tbody></table>`;
         billsHtml.push(`
-            <div class="print-bill-container">
-                <div class="mini-bill-print">
-                    <img class="logo-print-img" src="${LOGO_URL}" style="max-width:100px; margin:0 auto 5px; display:block;">
-                    <div class="bill-header">🧾 BILL: ${id}</div>
-                    <div class="bill-customer">
-                        <strong>${escapeHtml(customer.name)}</strong><br>
-                        ${escapeHtml(customer.address)}, ${escapeHtml(customer.city)}<br>
-                        📞 ${escapeHtml(customer.phone)}
-                    </div>
-                    ${itemsHtml}
-                    <div><strong>Subtotal:</strong> Rs. ${customer.subtotal.toFixed(2)}</div>
-                    <div><strong>Courier:</strong> Rs. ${customer.courier.toFixed(2)}</div>
-                    <div class="bill-total"><strong>GRAND TOTAL: Rs. ${customer.grandTotal.toFixed(2)}</strong></div>
+            <div class="bill-card">
+                <img class="logo-print-img" src="${LOGO_URL}" alt="Logo">
+                <div class="bill-header">🧾 BILL: ${id}</div>
+                <div class="bill-customer">
+                    <strong>${escapeHtml(customer.name)}</strong><br>
+                    ${escapeHtml(customer.address)}, ${escapeHtml(customer.city)}<br>
+                    📞 ${escapeHtml(customer.phone)}
                 </div>
+                ${itemsHtml}
+                <div class="bill-subtotal">Subtotal: Rs.${customer.subtotal.toFixed(2)}</div>
+                <div class="bill-courier">Courier: Rs.${customer.courier.toFixed(2)}</div>
+                <div class="bill-total"><strong>Total: Rs.${customer.grandTotal.toFixed(2)}</strong></div>
             </div>
         `);
     }
+    
+    // Group bills into pages of 9
+    let pagesHtml = '';
+    for (let i = 0; i < billsHtml.length; i += 9) {
+        const pageBills = billsHtml.slice(i, i + 9).join('');
+        pagesHtml += `<div class="bill-page">${pageBills}</div>`;
+    }
+    
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Print Bills</title><style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
+        body { background: white; padding: 8mm; }
+        .bill-page { page-break-after: always; }
+        .bill-page:last-child { page-break-after: auto; }
+        /* Grid: 3 columns, 3 rows per page (auto height) */
+        .bill-page {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6mm;
+            align-items: start;
+        }
+        .bill-card {
+            border: 1px solid #aaa;
+            padding: 4mm;
+            border-radius: 4px;
+            background: white;
+            break-inside: avoid;
+            font-size: 9pt;
+        }
+        .logo-print-img { max-width: 60px; display: block; margin: 0 auto 3mm; }
+        .bill-header { font-size: 11pt; font-weight: bold; text-align: center; margin-bottom: 3mm; }
+        .bill-customer { margin-bottom: 3mm; padding-bottom: 2mm; border-bottom: 1px dashed #ccc; font-size: 8.5pt; }
+        .bill-items-table { width: 100%; border-collapse: collapse; margin: 2mm 0; font-size: 8pt; }
+        .bill-items-table th, .bill-items-table td { border: 1px solid #999; padding: 2px; text-align: left; }
+        .bill-subtotal, .bill-courier { text-align: right; font-size: 8.5pt; margin-top: 1mm; }
+        .bill-total { text-align: right; font-weight: bold; margin-top: 2mm; font-size: 10pt; }
+        @media print {
+            body { padding: 0; margin: 0; }
+            .bill-page { page-break-after: always; }
+        }
+    </style></head><body>${pagesHtml}</body></html>`;
+    
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(fullHtml);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    setTimeout(() => { printWindow.close(); }, 500);
+}
     const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Print Bills</title><style>
         *{ margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI',Arial,sans-serif; }
         body{ padding:10mm; background:white; }
