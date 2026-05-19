@@ -639,23 +639,62 @@ function exportStockCSV() {
     showStockMsg("Stock CSV downloaded");
 }
 
+    //cvs cvs cvs//
+
 async function exportSalesCSV() {
     try {
-        const snapshot = await db.collection('sales').orderBy('timestamp','desc').get();
-        const csvRows = [["SaleID","Date","CustomerName","Address","Phone","ItemID","ItemName","Price","Qty","ItemTotal","Subtotal","Courier","GrandTotal","PaymentStatus"]];
+        // Fetch all sales (order by date)
+        const snapshot = await db.collection('sales').orderBy('timestamp', 'desc').get();
+        if (snapshot.empty) {
+            showStockMsg("No sales data to export", true);
+            return;
+        }
+
+        // Prepare CSV rows: header + data
+        const csvRows = [["JJ Number", "Customer Name", "Address", "City", "Bill Total (Rs.)", "Payment Status"]];
+
         snapshot.forEach(doc => {
             const data = doc.data();
-            const date = data.timestamp ? data.timestamp.toDate().toLocaleString('si-LK') : '';
-            data.items.forEach(item => {
-                csvRows.push([doc.id, date, data.customerName, data.address, data.phone, item.id, item.name, item.price, item.qty, item.total, data.subtotal, data.courier, data.grandTotal, data.paymentStatus || 'unpaid']);
-            });
+            const saleId = doc.id;               // e.g., JJ1310
+            const customerName = data.customerName || '';
+            const address = data.address || '';
+            const city = data.city || '';
+            const grandTotal = data.grandTotal || 0;
+            const paymentStatus = data.paymentStatus === 'paid' ? 'Paid' : 'Unpaid';
+
+            csvRows.push([
+                saleId,
+                customerName,
+                address,
+                city,
+                grandTotal.toFixed(2),
+                paymentStatus
+            ]);
         });
-        const csvContent = "\uFEFF" + csvRows.map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
-        const blob = new Blob([csvContent], {type:"text/csv;charset=utf-8"});
-        const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `sales_backup_${new Date().toISOString().slice(0,10)}.csv`; a.click();
-        showStockMsg("Sales CSV downloaded");
-    } catch (err) { showStockMsg("Error: " + err.message, true); }
+
+        // Create CSV content with UTF-8 BOM
+        const csvContent = "\uFEFF" + csvRows.map(row => 
+            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+        ).join('\n');
+
+        // Trigger download
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
+        const link = document.createElement("a");
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.download = `sales_summary_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        showStockMsg("Sales summary CSV downloaded");
+    } catch (err) {
+        showStockMsg("Error exporting sales: " + err.message, true);
+    }
 }
+
+    // ******************************************************************************************************//
 
 document.getElementById('addBtn').onclick = addStock;
 document.getElementById('updateBtn').onclick = updateStock;
