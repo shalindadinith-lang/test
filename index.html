@@ -286,13 +286,12 @@
 <script>
 // Firebase config
 const firebaseConfig = {
-    apiKey: "AIzaSyAwtpc_mfV50DYh19LBJFAaa-oe_yP5Eq8",
-  authDomain: "jj-online-stock.firebaseapp.com",
-  projectId: "jj-online-stock",
-  storageBucket: "jj-online-stock.firebasestorage.app",
-  messagingSenderId: "450413738491",
-  appId: "1:450413738491:web:38001c54af3e2ff370335e",
-  measurementId: "G-0BF50CE0NP"
+    apiKey: "AIzaSyDUIaLNRqZ8jg4061kqSKJs-wUNtvG8gko",
+  authDomain: "jj-stock.firebaseapp.com",
+  projectId: "jj-stock",
+  storageBucket: "jj-stock.firebasestorage.app",
+  messagingSenderId: "575897639104",
+  appId: "1:575897639104:web:03dda4d7c033bac7fcb525"
 };
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
@@ -487,7 +486,7 @@ function renderStockTable() {
     const start = (currentPage - 1) * ROWS_PER_PAGE;
     const pageData = filteredStock.slice(start, start + ROWS_PER_PAGE);
     if (!pageData.length) {
-        stockTableBody.innerHTML = "<tr><td colspan='4'>No data</td></tr>";
+        stockTableBody.innerHTML = "</td><td colspan='4'>No data</td></tr>";
     } else {
         pageData.forEach(row => {
             const tr = document.createElement('tr');
@@ -639,62 +638,41 @@ function exportStockCSV() {
     showStockMsg("Stock CSV downloaded");
 }
 
-    //cvs cvs cvs//
-
+// EXPORT SALES CSV – one row per bill with required columns
 async function exportSalesCSV() {
     try {
-        // Fetch all sales (order by date)
         const snapshot = await db.collection('sales').orderBy('timestamp', 'desc').get();
         if (snapshot.empty) {
             showStockMsg("No sales data to export", true);
             return;
         }
-
-        // Prepare CSV rows: header + data
         const csvRows = [["JJ Number", "Customer Name", "Address", "City", "Bill Total (Rs.)", "Payment Status"]];
-
         snapshot.forEach(doc => {
             const data = doc.data();
-            const saleId = doc.id;               // e.g., JJ1310
-            const customerName = data.customerName || '';
-            const address = data.address || '';
-            const city = data.city || '';
-            const grandTotal = data.grandTotal || 0;
-            const paymentStatus = data.paymentStatus === 'paid' ? 'Paid' : 'Unpaid';
-
             csvRows.push([
-                saleId,
-                customerName,
-                address,
-                city,
-                grandTotal.toFixed(2),
-                paymentStatus
+                doc.id,
+                data.customerName || '',
+                data.address || '',
+                data.city || '',
+                (data.grandTotal || 0).toFixed(2),
+                data.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'
             ]);
         });
-
-        // Create CSV content with UTF-8 BOM
-        const csvContent = "\uFEFF" + csvRows.map(row => 
-            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
-        ).join('\n');
-
-        // Trigger download
+        const csvContent = "\uFEFF" + csvRows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
         const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
         const link = document.createElement("a");
         const url = URL.createObjectURL(blob);
         link.href = url;
-        link.download = `sales_summary_${new Date().toISOString().slice(0, 10)}.csv`;
+        link.download = `sales_summary_${new Date().toISOString().slice(0,10)}.csv`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-        
         showStockMsg("Sales summary CSV downloaded");
     } catch (err) {
         showStockMsg("Error exporting sales: " + err.message, true);
     }
 }
-
-    // ******************************************************************************************************//
 
 document.getElementById('addBtn').onclick = addStock;
 document.getElementById('updateBtn').onclick = updateStock;
@@ -909,7 +887,7 @@ async function searchSales() {
         salesCurrentPage = 1;
         filterAndRenderSales();
     } catch (err) {
-        salesHistoryBody.innerHTML = "<tr><td colspan='7'>Error: " + err.message + "</td></tr>";
+        salesHistoryBody.innerHTML = `<tr><td colspan='7'>Error: ${err.message}</td></tr>`;
         console.error(err);
     }
 }
@@ -1159,35 +1137,6 @@ async function getSaleData(saleId) {
     return result;
 }
 
-async function ensureSaleDataCache(id) {
-    if (billCache[id]) return billCache[id];
-    const snap = await db.collection('sales').doc(id).get();
-    if (snap.exists) {
-        const d = snap.data();
-        billCache[id] = {
-            success: true,
-            customer: {
-                name: d.customerName,
-                address: d.address,
-                city: d.city || '',
-                phone: d.phone,
-                subtotal: d.subtotal,
-                courier: d.courier,
-                grandTotal: d.grandTotal
-            },
-            items: d.items.map(it => ({
-                id: it.id,
-                name: it.name,
-                price: it.price,
-                qty: it.qty,
-                total: it.total
-            }))
-        };
-        return billCache[id];
-    }
-    return null;
-}
-
 async function viewBill(saleId) {
     try {
         const json = await getSaleData(saleId);
@@ -1209,14 +1158,21 @@ async function viewBill(saleId) {
     } catch (err) { alert("Error: " + err.message); }
 }
 
-// ========== CORRECTED PRINT FUNCTION – 9 BILLS PER PAGE (3×3 GRID) ==========
+// ========== FIXED PRINT FUNCTION – 9 BILLS PER PAGE (3×3 GRID) ==========
+// Uses getSaleData() which respects isDeletedView, so both active and deleted bills work.
 async function printSelectedBills() {
     if (selectedSales.size === 0) { alert("Please select at least one bill to print."); return; }
     const saleIds = Array.from(selectedSales);
     const billsHtml = [];
     for (const id of saleIds) {
-        const data = await ensureSaleDataCache(id);
-        if (!data) continue;
+        let data;
+        try {
+            data = await getSaleData(id);  // uses isDeletedView automatically
+        } catch(e) {
+            console.warn(`Could not fetch bill ${id}:`, e);
+            continue;
+        }
+        if (!data || !data.success) continue;
         const { customer, items } = data;
         let itemsHtml = `<table class="bill-items-table"><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>`;
         items.forEach(it => { itemsHtml += `<tr><td>${escapeHtml(it.name)}</td><td>Rs.${it.price.toFixed(2)}</td><td>${it.qty}</td><td>Rs.${it.total.toFixed(2)}</td></tr>`; });
@@ -1295,20 +1251,13 @@ async function downloadSelectedBills() {
             const json = await getSaleData(id);
             const { customer, items } = json;
             const date = new Date().toLocaleString();
-            const customerName = customer.name || '';
-            const address = customer.address || '';
-            const city = customer.city || '';
-            const phone = customer.phone || '';
-            const subtotal = customer.subtotal;
-            const courier = customer.courier;
-            const grandTotal = customer.grandTotal;
             const paymentStatus = salesHistoryData.find(s => s.SaleID === id)?.PaymentStatus || 'unpaid';
             if (items && items.length > 0) {
                 items.forEach(item => {
-                    csvRows.push([id, date, customerName, address, city, phone, item.id, item.name, item.price, item.qty, item.total, subtotal, courier, grandTotal, paymentStatus]);
+                    csvRows.push([id, date, customer.name, customer.address, customer.city, customer.phone, item.id, item.name, item.price, item.qty, item.total, customer.subtotal, customer.courier, customer.grandTotal, paymentStatus]);
                 });
             } else {
-                csvRows.push([id, date, customerName, address, city, phone, '', '', '', '', '', subtotal, courier, grandTotal, paymentStatus]);
+                csvRows.push([id, date, customer.name, customer.address, customer.city, customer.phone, '', '', '', '', '', customer.subtotal, customer.courier, customer.grandTotal, paymentStatus]);
             }
         } catch (err) { console.error(err); }
     }
