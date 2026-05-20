@@ -1248,35 +1248,68 @@ async function printSelectedBills() {
     //Downlord select bill//
 
 async function downloadSelectedBills() {
-    if (selectedSales.size === 0) { alert("Please select at least one bill."); return; }
-    const saleIds = Array.from(selectedSales);
-    const csvHeader = ["SaleID","Date","CustomerName","Address","City","Phone","ItemID","ItemName","Price","Qty","ItemTotal","Subtotal","Courier","GrandTotal","PaymentStatus"];
-    const csvRows = [csvHeader];
-    for (const id of saleIds) {
-        try {
-            const json = await getSaleData(id);
-            const { customer, items } = json;
-            const date = new Date().toLocaleString();
-            const paymentStatus = salesHistoryData.find(s => s.SaleID === id)?.PaymentStatus || 'unpaid';
-            if (items && items.length > 0) {
-                items.forEach(item => {
-                    csvRows.push([id, date, customer.name, customer.address, customer.city, customer.phone, item.id, item.name, item.price, item.qty, item.total, customer.subtotal, customer.courier, customer.grandTotal, paymentStatus]);
-                });
-            } else {
-                csvRows.push([id, date, customer.name, customer.address, customer.city, customer.phone, '', '', '', '', '', customer.subtotal, customer.courier, customer.grandTotal, paymentStatus]);
-            }
-        } catch (err) { console.error(err); }
+    if (selectedSales.size === 0) { 
+        alert("Please select at least one bill."); 
+        return; 
     }
-    const csvContent = "\uFEFF" + csvRows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const saleIds = Array.from(selectedSales);
+    // 🔽 ඔබට අවශ්‍ය columns පමණයි
+    const csvHeader = ["SaleID", "Date", "CustomerName", "Address", "City", "Phone", "GrandTotal", "PaymentStatus", "Comment"];
+    const csvRows = [csvHeader];
+
+    for (const id of saleIds) {
+        // salesHistoryData එකෙන් දත්ත ගන්න (Comment එකත් එක්ක)
+        const sale = salesHistoryData.find(s => s.SaleID === id);
+        if (!sale) {
+            // Firestore වලින් backup එකක් ගන්න
+            try {
+                const docSnap = await db.collection('sales').doc(id).get();
+                if (!docSnap.exists) continue;
+                const data = docSnap.data();
+                const date = data.timestamp ? data.timestamp.toDate().toLocaleDateString('si-LK') : '';
+                csvRows.push([
+                    id,
+                    date,
+                    data.customerName || '',
+                    data.address || '',
+                    data.city || '',
+                    data.phone || '',
+                    data.grandTotal ? parseFloat(data.grandTotal).toFixed(2) : '0.00',
+                    data.paymentStatus || 'unpaid',
+                    data.comment || ''
+                ]);
+            } catch(err) { continue; }
+        } else {
+            // salesHistoryData එකෙන් ගන්න
+            const date = sale.Timestamp ? sale.Timestamp.toLocaleDateString('si-LK') : '';
+            csvRows.push([
+                id,
+                date,
+                sale.CustomerName || '',
+                sale.Address || '',
+                sale.City || '',
+                sale.Phone || '',
+                sale.GrandTotal ? parseFloat(sale.GrandTotal).toFixed(2) : '0.00',
+                sale.PaymentStatus || 'unpaid',
+                sale.Comment || ''
+            ]);
+        }
+    }
+
+    const csvContent = "\uFEFF" + csvRows.map(row => 
+        row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+    ).join('\n');
+    
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `selected_bills_${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    document.body.appendChild(a); 
+    a.click(); 
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
-
 function closeModal() { document.getElementById('billModal').style.display = 'none'; }
     
 
