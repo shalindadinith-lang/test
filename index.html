@@ -239,6 +239,40 @@
     </div>
 </div>
 
+<!-- Edit Bill Modal -->
+<div id="editBillModal" class="modal-overlay">
+    <div class="modal" style="max-width:850px; max-height:90vh;">
+        <h3>✏️ Edit Bill - <span id="editSaleIdLabel"></span></h3>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+            <input type="text" id="editCustName" placeholder="Customer Name" style="flex:1; min-width:130px;">
+            <input type="text" id="editCustAddress" placeholder="Address" style="flex:1; min-width:130px;">
+            <input type="text" id="editCustCity" placeholder="City" style="flex:1; min-width:100px;">
+            <input type="text" id="editCustPhone" placeholder="Phone" style="flex:1; min-width:120px;">
+        </div>
+        <h4>🛒 Items</h4>
+        <div class="table-responsive">
+            <table id="editItemsTable">
+                <thead><tr><th>ID</th><th>Name</th><th>Price</th><th>Qty</th><th>Total</th><th></th></tr></thead>
+                <tbody id="editItemsBody"></tbody>
+            </table>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:10px; align-items:center;">
+            <input list="itemList" id="editItemSearch" placeholder="Add item (ID or name)" style="flex:2;">
+            <input type="number" id="editItemQty" placeholder="Qty" value="1" min="1" style="max-width:90px;">
+            <button class="btn-green" onclick="addItemToEditBill()">➕ Add</button>
+        </div>
+        <div style="text-align:right; margin-top:15px; line-height:2;">
+            <strong>Subtotal: Rs. <span id="editSubtotal">0.00</span></strong><br>
+            <strong>Courier: Rs. <input type="number" id="editCourier" value="0" min="0" style="width:100px; margin-left:8px; padding:5px;" onchange="updateEditTotals()"></strong><br>
+            <strong style="font-size:1.2em;">Grand Total: Rs. <span id="editGrandTotal">0.00</span></strong>
+        </div>
+        <div style="margin-top:15px; display:flex; gap:10px; justify-content:flex-end;">
+            <button class="btn-green" onclick="saveEditedBill()">💾 Save Changes</button>
+            <button class="btn-gray" onclick="closeEditModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
 <!-- MODALS -->
 <div id="billModal" class="modal-overlay">
     <div class="modal" style="max-width:700px;">
@@ -287,12 +321,12 @@
 // Firebase config
 const firebaseConfig = {
     apiKey: "AIzaSyAwtpc_mfV50DYh19LBJFAaa-oe_yP5Eq8",
-  authDomain: "jj-online-stock.firebaseapp.com",
-  projectId: "jj-online-stock",
-  storageBucket: "jj-online-stock.firebasestorage.app",
-  messagingSenderId: "450413738491",
-  appId: "1:450413738491:web:38001c54af3e2ff370335e",
-  measurementId: "G-0BF50CE0NP"
+    authDomain: "jj-online-stock.firebaseapp.com",
+    projectId: "jj-online-stock",
+    storageBucket: "jj-online-stock.firebasestorage.app",
+    messagingSenderId: "450413738491",
+    appId: "1:450413738491:web:38001c54af3e2ff370335e",
+    measurementId: "G-0BF50CE0NP"
 };
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
@@ -970,6 +1004,7 @@ function renderSalesPage(overrideData = null) {
              <button class="btn-red" onclick="event.stopPropagation(); permanentDeleteSale('${sale.SaleID}')">🗑️ Permanent</button>` :
             `<button class="btn-gray" onclick="event.stopPropagation(); openCommentModal('${sale.SaleID}', '${escapeHtml(sale.Comment || '')}')">💬</button>
              <button class="btn-blue" onclick="event.stopPropagation(); togglePayment('${sale.SaleID}', '${sale.PaymentStatus}')">💰 ${paymentBtnLabel}</button>
+             <button class="btn-orange" onclick="event.stopPropagation(); openEditModal('${sale.SaleID}')">✏️ Edit</button>
              <button class="btn-red" onclick="event.stopPropagation(); deleteSale('${sale.SaleID}')">🗑️</button>`;
         row.innerHTML = `
             <td><input type="checkbox" class="saleCheckbox" data-saleid="${sale.SaleID}" ${isChecked ? 'checked' : ''} onchange="handleCheckboxToggle(event)"></td>
@@ -1160,7 +1195,6 @@ async function viewBill(saleId) {
 }
 
 // ========== FIXED PRINT FUNCTION – 9 BILLS PER PAGE (3×3 GRID) ==========
-// Uses getSaleData() which respects isDeletedView, so both active and deleted bills work.
 async function printSelectedBills() {
     if (selectedSales.size === 0) { alert("Please select at least one bill to print."); return; }
     const saleIds = Array.from(selectedSales);
@@ -1168,7 +1202,7 @@ async function printSelectedBills() {
     for (const id of saleIds) {
         let data;
         try {
-            data = await getSaleData(id);  // uses isDeletedView automatically
+            data = await getSaleData(id);
         } catch(e) {
             console.warn(`Could not fetch bill ${id}:`, e);
             continue;
@@ -1195,7 +1229,6 @@ async function printSelectedBills() {
         `);
     }
     
-    // Group bills into pages of 9
     let pagesHtml = '';
     for (let i = 0; i < billsHtml.length; i += 9) {
         const pageBills = billsHtml.slice(i, i + 9).join('');
@@ -1242,53 +1275,37 @@ async function printSelectedBills() {
     setTimeout(() => { printWindow.close(); }, 500);
 }
 
-
-
-
-    //Downlord select bill//
-
+// Download selected bills (updated)
 async function downloadSelectedBills() {
     if (selectedSales.size === 0) { 
         alert("Please select at least one bill."); 
         return; 
     }
     const saleIds = Array.from(selectedSales);
-    // 🔽 ඔබට අවශ්‍ය columns පමණයි
     const csvHeader = ["SaleID", "Date", "CustomerName", "Address", "City", "Phone", "GrandTotal", "PaymentStatus", "Comment"];
     const csvRows = [csvHeader];
 
     for (const id of saleIds) {
-        // salesHistoryData එකෙන් දත්ත ගන්න (Comment එකත් එක්ක)
         const sale = salesHistoryData.find(s => s.SaleID === id);
         if (!sale) {
-            // Firestore වලින් backup එකක් ගන්න
             try {
                 const docSnap = await db.collection('sales').doc(id).get();
                 if (!docSnap.exists) continue;
                 const data = docSnap.data();
                 const date = data.timestamp ? data.timestamp.toDate().toLocaleDateString('si-LK') : '';
                 csvRows.push([
-                    id,
-                    date,
-                    data.customerName || '',
-                    data.address || '',
-                    data.city || '',
-                    data.phone || '',
+                    id, date,
+                    data.customerName || '', data.address || '', data.city || '', data.phone || '',
                     data.grandTotal ? parseFloat(data.grandTotal).toFixed(2) : '0.00',
                     data.paymentStatus || 'unpaid',
                     data.comment || ''
                 ]);
             } catch(err) { continue; }
         } else {
-            // salesHistoryData එකෙන් ගන්න
             const date = sale.Timestamp ? sale.Timestamp.toLocaleDateString('si-LK') : '';
             csvRows.push([
-                id,
-                date,
-                sale.CustomerName || '',
-                sale.Address || '',
-                sale.City || '',
-                sale.Phone || '',
+                id, date,
+                sale.CustomerName || '', sale.Address || '', sale.City || '', sale.Phone || '',
                 sale.GrandTotal ? parseFloat(sale.GrandTotal).toFixed(2) : '0.00',
                 sale.PaymentStatus || 'unpaid',
                 sale.Comment || ''
@@ -1310,8 +1327,187 @@ async function downloadSelectedBills() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 }
+
 function closeModal() { document.getElementById('billModal').style.display = 'none'; }
-    
+
+// ================== EDIT BILL ==================
+let editingSaleId = null;
+let originalSaleData = null;
+let editingItems = [];
+
+function openEditModal(saleId) {
+    const sale = salesHistoryData.find(s => s.SaleID === saleId);
+    if (!sale) { alert("Sale data not found"); return; }
+
+    editingSaleId = saleId;
+    originalSaleData = JSON.parse(JSON.stringify(sale));
+
+    document.getElementById('editSaleIdLabel').textContent = saleId;
+    document.getElementById('editCustName').value = sale.CustomerName || '';
+    document.getElementById('editCustAddress').value = sale.Address || '';
+    document.getElementById('editCustCity').value = sale.City || '';
+    document.getElementById('editCustPhone').value = sale.Phone || '';
+
+    // Calculate courier from stored data
+    const items = sale.Items || [];
+    const subtotal = items.reduce((sum, it) => sum + (it.total || it.price * it.qty), 0);
+    const courier = (sale.GrandTotal || 0) - subtotal;
+    document.getElementById('editCourier').value = courier >= 0 ? courier.toFixed(2) : '0.00';
+
+    editingItems = JSON.parse(JSON.stringify(items));
+    renderEditItems();
+    updateEditTotals();
+
+    document.getElementById('editBillModal').style.display = 'flex';
+}
+
+function renderEditItems() {
+    const tbody = document.getElementById('editItemsBody');
+    tbody.innerHTML = "";
+    editingItems.forEach((item, idx) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${escapeHtml(item.id)}</td>
+            <td>${escapeHtml(item.name)}</td>
+            <td>Rs. ${parseFloat(item.price).toFixed(2)}</td>
+            <td><input type="number" min="1" value="${item.qty}" style="width:70px;" onchange="updateEditItem(${idx}, 'qty', this.value)"></td>
+            <td class="item-total">Rs. ${(parseFloat(item.price) * parseInt(item.qty)).toFixed(2)}</td>
+            <td><button class="btn-red" onclick="removeEditItem(${idx})">🗑️</button></td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function updateEditItem(idx, field, value) {
+    if (field === 'qty') {
+        const newQty = parseInt(value) || 1;
+        editingItems[idx].qty = newQty;
+        const row = document.getElementById('editItemsBody').children[idx];
+        if (row) {
+            row.querySelector('.item-total').textContent = `Rs. ${(parseFloat(editingItems[idx].price) * newQty).toFixed(2)}`;
+        }
+    }
+    updateEditTotals();
+}
+
+function removeEditItem(idx) {
+    editingItems.splice(idx, 1);
+    renderEditItems();
+    updateEditTotals();
+}
+
+function addItemToEditBill() {
+    const selVal = document.getElementById('editItemSearch').value.trim();
+    const qty = parseInt(document.getElementById('editItemQty').value) || 1;
+    if (!selVal || qty < 1) { alert("Select item and valid quantity"); return; }
+    const idMatch = selVal.match(/^([^\s-]+)/);
+    if (!idMatch) { alert("Invalid item"); return; }
+    const id = idMatch[1];
+    const stockItem = stockData.find(r => String(r[0]) === id);
+    if (!stockItem) { alert("Item not in stock"); return; }
+
+    const existing = editingItems.find(it => it.id === id);
+    if (existing) {
+        existing.qty += qty;
+    } else {
+        editingItems.push({
+            id: String(stockItem[0]),
+            name: stockItem[1],
+            price: parseFloat(stockItem[2]),
+            qty: qty
+        });
+    }
+    renderEditItems();
+    updateEditTotals();
+    document.getElementById('editItemSearch').value = "";
+    document.getElementById('editItemQty').value = 1;
+}
+
+function updateEditTotals() {
+    const subtotal = editingItems.reduce((sum, it) => sum + (parseFloat(it.price) * parseInt(it.qty)), 0);
+    const courier = parseFloat(document.getElementById('editCourier').value) || 0;
+    document.getElementById('editSubtotal').textContent = subtotal.toFixed(2);
+    document.getElementById('editGrandTotal').textContent = (subtotal + courier).toFixed(2);
+}
+
+function closeEditModal() {
+    document.getElementById('editBillModal').style.display = 'none';
+    editingSaleId = null;
+    editingItems = [];
+    originalSaleData = null;
+}
+
+async function saveEditedBill() {
+    if (!editingSaleId) return;
+    const newCustName = document.getElementById('editCustName').value.trim();
+    if (!newCustName) { alert("Customer name required"); return; }
+    if (editingItems.length === 0) { alert("Add at least one item"); return; }
+
+    const newSubtotal = editingItems.reduce((sum, it) => sum + (parseFloat(it.price) * parseInt(it.qty)), 0);
+    const newCourier = parseFloat(document.getElementById('editCourier').value) || 0;
+    const newGrandTotal = newSubtotal + newCourier;
+
+    const originalItems = originalSaleData.Items || [];
+    const origMap = {};
+    originalItems.forEach(it => { origMap[it.id] = (origMap[it.id] || 0) + parseInt(it.qty); });
+    const editMap = {};
+    editingItems.forEach(it => { editMap[it.id] = (editMap[it.id] || 0) + parseInt(it.qty); });
+
+    const allIds = new Set([...Object.keys(origMap), ...Object.keys(editMap)]);
+    const stockUpdates = {};
+
+    for (const itemId of allIds) {
+        const originalQty = origMap[itemId] || 0;
+        const editedQty = editMap[itemId] || 0;
+        const delta = editedQty - originalQty;
+        if (delta !== 0) stockUpdates[itemId] = delta;
+    }
+
+    for (const [itemId, delta] of Object.entries(stockUpdates)) {
+        if (delta > 0) {
+            const stockItem = stockData.find(r => String(r[0]) === itemId);
+            const available = stockItem ? parseInt(stockItem[3]) : 0;
+            if (available < delta) {
+                alert(`Not enough stock for "${stockItem ? stockItem[1] : itemId}". Available: ${available}, Need extra: ${delta}`);
+                return;
+            }
+        }
+    }
+
+    const batch = db.batch();
+    for (const [itemId, delta] of Object.entries(stockUpdates)) {
+        const stockRef = db.collection('stock').doc(itemId);
+        batch.update(stockRef, { qty: firebase.firestore.FieldValue.increment(-delta) });
+    }
+
+    const updatedSaleData = {
+        customerName: newCustName,
+        address: document.getElementById('editCustAddress').value.trim(),
+        city: document.getElementById('editCustCity').value.trim(),
+        phone: document.getElementById('editCustPhone').value.trim(),
+        items: editingItems.map(it => ({
+            id: it.id,
+            name: it.name,
+            price: parseFloat(it.price),
+            qty: parseInt(it.qty),
+            total: parseFloat(it.price) * parseInt(it.qty)
+        })),
+        subtotal: newSubtotal,
+        courier: newCourier,
+        grandTotal: newGrandTotal
+    };
+    batch.set(db.collection('sales').doc(editingSaleId), updatedSaleData, { merge: true });
+
+    try {
+        await batch.commit();
+        alert('✅ Bill updated successfully!');
+        closeEditModal();
+        await fetchStock();
+        await searchSales();
+    } catch (err) {
+        alert('❌ Error updating bill: ' + err.message);
+    }
+}
 
 // ================== REPORTS ==================
 async function openReports() {
