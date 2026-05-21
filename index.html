@@ -776,11 +776,10 @@ function getStockQty(itemId) {
     return found ? parseInt(found[3]) || 0 : 0;
 }
 function updateCartQty(index, newQty) {
-    newQty = parseInt(newQty) || 1;
+    newQty = Math.max(1, parseInt(newQty) || 1); // Prevent negative
     const item = cart[index];
     const available = getStockQty(item.id);
     if (newQty > available) { alert(`Maximum available ${available}`); newQty = available; }
-    if (newQty < 1) newQty = 1;
     cart[index].qty = newQty;
     renderCart(); updateTotals();
 }
@@ -824,9 +823,9 @@ confirmSaleBtn.onclick = async function() {
             name: c.name,
             price: c.price,
             qty: c.qty,
-            total: c.price * c.qty
+            total: parseFloat((c.price * c.qty).toFixed(2))
         }));
-        const subtotal = items.reduce((s, it) => s + it.total, 0);
+        const subtotal = parseFloat(items.reduce((s, it) => s + it.total, 0).toFixed(2));
         const grandTotal = subtotal + courier;
 
         const saleData = {
@@ -1348,11 +1347,10 @@ function openEditModal(saleId) {
     document.getElementById('editCustCity').value = sale.City || '';
     document.getElementById('editCustPhone').value = sale.Phone || '';
 
-    // Calculate courier from stored data
     const items = sale.Items || [];
     const subtotal = items.reduce((sum, it) => sum + (it.total || it.price * it.qty), 0);
     const courier = (sale.GrandTotal || 0) - subtotal;
-    document.getElementById('editCourier').value = courier >= 0 ? courier.toFixed(2) : '0.00';
+    document.getElementById('editCourier').value = Math.max(0, courier).toFixed(2); // ensure non-negative
 
     editingItems = JSON.parse(JSON.stringify(items));
     renderEditItems();
@@ -1380,7 +1378,8 @@ function renderEditItems() {
 
 function updateEditItem(idx, field, value) {
     if (field === 'qty') {
-        const newQty = parseInt(value) || 1;
+        let newQty = parseInt(value);
+        if (isNaN(newQty) || newQty < 1) newQty = 1;  // Prevent negative/zero
         editingItems[idx].qty = newQty;
         const row = document.getElementById('editItemsBody').children[idx];
         if (row) {
@@ -1398,8 +1397,9 @@ function removeEditItem(idx) {
 
 function addItemToEditBill() {
     const selVal = document.getElementById('editItemSearch').value.trim();
-    const qty = parseInt(document.getElementById('editItemQty').value) || 1;
-    if (!selVal || qty < 1) { alert("Select item and valid quantity"); return; }
+    let qty = parseInt(document.getElementById('editItemQty').value);
+    if (isNaN(qty) || qty < 1) qty = 1; // ensure valid qty
+    if (!selVal) { alert("Select item"); return; }
     const idMatch = selVal.match(/^([^\s-]+)/);
     if (!idMatch) { alert("Invalid item"); return; }
     const id = idMatch[1];
@@ -1425,7 +1425,8 @@ function addItemToEditBill() {
 
 function updateEditTotals() {
     const subtotal = editingItems.reduce((sum, it) => sum + (parseFloat(it.price) * parseInt(it.qty)), 0);
-    const courier = parseFloat(document.getElementById('editCourier').value) || 0;
+    let courier = parseFloat(document.getElementById('editCourier').value) || 0;
+    if (courier < 0) courier = 0; // ensure non-negative
     document.getElementById('editSubtotal').textContent = subtotal.toFixed(2);
     document.getElementById('editGrandTotal').textContent = (subtotal + courier).toFixed(2);
 }
@@ -1443,9 +1444,10 @@ async function saveEditedBill() {
     if (!newCustName) { alert("Customer name required"); return; }
     if (editingItems.length === 0) { alert("Add at least one item"); return; }
 
-    const newSubtotal = editingItems.reduce((sum, it) => sum + (parseFloat(it.price) * parseInt(it.qty)), 0);
+    const newSubtotal = parseFloat(editingItems.reduce((sum, it) => sum + (parseFloat(it.price) * parseInt(it.qty)), 0).toFixed(2));
     const newCourier = parseFloat(document.getElementById('editCourier').value) || 0;
-    const newGrandTotal = newSubtotal + newCourier;
+    if (newCourier < 0) { alert("Courier cannot be negative"); return; }
+    const newGrandTotal = parseFloat((newSubtotal + newCourier).toFixed(2));
 
     const originalItems = originalSaleData.Items || [];
     const origMap = {};
@@ -1463,14 +1465,18 @@ async function saveEditedBill() {
         if (delta !== 0) stockUpdates[itemId] = delta;
     }
 
+    // Real-time stock check from Firestore
     for (const [itemId, delta] of Object.entries(stockUpdates)) {
-        if (delta > 0) {
-            const stockItem = stockData.find(r => String(r[0]) === itemId);
-            const available = stockItem ? parseInt(stockItem[3]) : 0;
-            if (available < delta) {
-                alert(`Not enough stock for "${stockItem ? stockItem[1] : itemId}". Available: ${available}, Need extra: ${delta}`);
-                return;
-            }
+        const stockDocRef = db.collection('stock').doc(itemId);
+        const stockSnap = await stockDocRef.get();
+        if (!stockSnap.exists) {
+            alert(`Stock item "${itemId}" no longer exists. Cannot save.`);
+            return;
+        }
+        const currentQty = stockSnap.data().qty || 0;
+        if (delta > 0 && currentQty < delta) {
+            alert(`Not enough stock for "${itemId}". Available: ${currentQty}, needed extra: ${delta}`);
+            return;
         }
     }
 
@@ -1490,7 +1496,7 @@ async function saveEditedBill() {
             name: it.name,
             price: parseFloat(it.price),
             qty: parseInt(it.qty),
-            total: parseFloat(it.price) * parseInt(it.qty)
+            total: parseFloat((parseFloat(it.price) * parseInt(it.qty)).toFixed(2))
         })),
         subtotal: newSubtotal,
         courier: newCourier,
