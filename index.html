@@ -1712,6 +1712,7 @@ function closeAIModal() {
     document.getElementById('aiPrompt').value = '';
 }
 
+// ================== AI ASSISTANT (System‑Aware) ==================
 async function askAI() {
     const prompt = document.getElementById('aiPrompt').value.trim();
     const responseDiv = document.getElementById('aiResponse');
@@ -1724,11 +1725,48 @@ async function askAI() {
 
     askBtn.disabled = true;
     askBtn.textContent = '⏳ Thinking...';
-    responseDiv.innerText = 'Connecting to AI...';
+    responseDiv.innerText = 'Gathering system data...';
 
     try {
-        // Using Puter.js – free, no API key, GPT-4o
-        const answer = await puter.ai.chat(prompt, { model: 'gpt-4o' });
+        // ===== 1. Collect system context (stock + today sales summary) =====
+        let systemContext = 'Here is the current system data:\n\n';
+
+        // --- Stock summary ---
+        if (stockData.length > 0) {
+            const totalQty = stockData.reduce((sum, r) => sum + (parseInt(r[3])||0), 0);
+            const totalValue = stockData.reduce((sum, r) => sum + ((parseInt(r[3])||0) * (parseFloat(r[2])||0)), 0).toFixed(2);
+            const lowStockItems = stockData.filter(r => (parseInt(r[3])||0) > 0 && (parseInt(r[3])||0) <= 5)
+                                       .map(r => `${r[0]} - ${r[1]} (Qty: ${r[3]})`).join(', ');
+            systemContext += '--- Stock ---\n';
+            systemContext += `Total items: ${stockData.length}\n`;
+            systemContext += `Total quantity: ${totalQty}\n`;
+            systemContext += `Total value: Rs. ${totalValue}\n`;
+            systemContext += `Low stock (<=5): ${lowStockItems || 'None'}\n\n`;
+        }
+
+        // --- Today's sales summary ---
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const todaySales = salesHistoryData.filter(s => {
+            const saleDate = s.Timestamp ? new Date(s.Timestamp) : null;
+            return saleDate && saleDate >= today;
+        });
+        if (todaySales.length > 0) {
+            const todayTotal = todaySales.reduce((sum, s) => sum + (parseFloat(s.GrandTotal)||0), 0).toFixed(2);
+            systemContext += '--- Today\'s Sales ---\n';
+            systemContext += `Number of bills: ${todaySales.length}\n`;
+            systemContext += `Total amount: Rs. ${todayTotal}\n\n`;
+        } else {
+            systemContext += '--- Today\'s Sales ---\nNo bills yet today.\n\n';
+        }
+
+        // You can add more context if needed (e.g., recent unpaid bills, etc.)
+
+        // ===== 2. Build final prompt with context =====
+        const fullPrompt = `${systemContext}\nBased on the above data, please answer the user's question:\nUser: ${prompt}`;
+
+        // ===== 3. Call Puter AI with the combined prompt =====
+        const answer = await puter.ai.chat(fullPrompt, { model: 'gpt-4o' });
         responseDiv.innerText = answer;
     } catch (err) {
         console.error(err);
@@ -1737,6 +1775,7 @@ async function askAI() {
         askBtn.disabled = false;
         askBtn.textContent = '🔮 Ask';
     }
+
 }
 </script>
 </body>
