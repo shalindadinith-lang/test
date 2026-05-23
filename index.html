@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>Smart Stock + POS (Firebase) - Full Reports</title>
+    <title>Smart Stock + POS (Firebase) - with AI Assistant</title>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <!-- ========== PUTER.JS AI LIBRARY (FREE, NO KEY) ========== -->
+    <script src="https://js.puter.com/v2/"></script>
     <style>
         * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, Arial, sans-serif; }
         body { background: #eef2f7; margin: 0; padding: 20px; }
@@ -67,6 +69,66 @@
         .date-label { margin-right: 5px; font-weight: bold; white-space: nowrap; }
         .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
+        /* ========== AI ASSISTANT STYLES ========== */
+        #aiFloatingBtn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #6a0dad;
+            color: white;
+            border: none;
+            border-radius: 60px;
+            padding: 14px 24px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 8px 20px rgba(106, 13, 173, 0.4);
+            z-index: 999;
+            transition: 0.3s;
+            display: none; /* hidden until login */
+        }
+        #aiFloatingBtn:hover {
+            background: #4b0082;
+            transform: scale(1.05);
+        }
+        .ai-chat-container {
+            background: white;
+            border-radius: 20px;
+            padding: 25px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .ai-chat-container h3 {
+            margin: 0;
+            color: #1e466e;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        #aiPrompt {
+            width: 100%;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid #bdc4cc;
+            font-size: 1rem;
+            resize: vertical;
+        }
+        #aiResponse {
+            background: #f5f7fa;
+            padding: 15px;
+            border-radius: 12px;
+            min-height: 60px;
+            white-space: pre-wrap;
+            font-size: 0.95rem;
+            max-height: 250px;
+            overflow-y: auto;
+        }
+        .ai-buttons { display: flex; gap: 10px; justify-content: flex-end; }
+
         @media (max-width: 768px) {
             body { padding: 10px; }
             .container { padding: 15px 12px; border-radius: 20px; }
@@ -89,6 +151,7 @@
             .date-label { display: block; margin: 5px 0 2px; }
             input[type="date"] { width: 100%; }
             #searchSaleInput { width: 100%; }
+            #aiFloatingBtn { bottom: 20px; right: 20px; padding: 12px 20px; font-size: 1rem; }
         }
         @media (max-width: 480px) {
             .btn-group button { min-width: 100%; }
@@ -317,8 +380,22 @@
     </div>
 </div>
 
+<!-- ================== AI ASSISTANT MODAL ================== -->
+<button id="aiFloatingBtn" onclick="openAIModal()">🤖 AI Help</button>
+<div id="aiModal" class="modal-overlay" style="z-index:1001;">
+    <div class="ai-chat-container">
+        <h3>🤖 AI Assistant (Free, GPT-4o)</h3>
+        <textarea id="aiPrompt" rows="3" placeholder="Ask anything about stock, sales, or business..."></textarea>
+        <div id="aiResponse">Your answer will appear here...</div>
+        <div class="ai-buttons">
+            <button id="askAiBtn" onclick="askAI()">🔮 Ask</button>
+            <button class="btn-gray" onclick="closeAIModal()">Close</button>
+        </div>
+    </div>
+</div>
+
 <script>
-// Firebase config
+// ================== FIREBASE CONFIG ==================
 const firebaseConfig = {
     apiKey: "AIzaSyAwtpc_mfV50DYh19LBJFAaa-oe_yP5Eq8",
     authDomain: "jj-online-stock.firebaseapp.com",
@@ -405,6 +482,7 @@ auth.onAuthStateChanged(async (user) => {
     if (user) {
         document.getElementById('loginScreen').style.display = 'none';
         document.getElementById('mainApp').style.display = 'block';
+        document.getElementById('aiFloatingBtn').style.display = 'block';  // SHOW AI BUTTON
         await loadConfig();
         await fetchStock();
         await ensureSaleCounter();
@@ -412,6 +490,7 @@ auth.onAuthStateChanged(async (user) => {
     } else {
         document.getElementById('loginScreen').style.display = 'block';
         document.getElementById('mainApp').style.display = 'none';
+        document.getElementById('aiFloatingBtn').style.display = 'none';  // HIDE AI BUTTON
     }
 });
 
@@ -673,7 +752,7 @@ function exportStockCSV() {
     showStockMsg("Stock CSV downloaded");
 }
 
-// EXPORT SALES CSV – one row per bill with required columns
+// EXPORT SALES CSV
 async function exportSalesCSV() {
     try {
         const snapshot = await db.collection('sales').orderBy('timestamp', 'desc').get();
@@ -776,7 +855,7 @@ function getStockQty(itemId) {
     return found ? parseInt(found[3]) || 0 : 0;
 }
 function updateCartQty(index, newQty) {
-    newQty = Math.max(1, parseInt(newQty) || 1); // Prevent negative
+    newQty = Math.max(1, parseInt(newQty) || 1);
     const item = cart[index];
     const available = getStockQty(item.id);
     if (newQty > available) { alert(`Maximum available ${available}`); newQty = available; }
@@ -1193,7 +1272,7 @@ async function viewBill(saleId) {
     } catch (err) { alert("Error: " + err.message); }
 }
 
-// ========== FIXED PRINT FUNCTION – 9 BILLS PER PAGE (3×3 GRID) ==========
+// ========== PRINT SELECTED BILLS (9 per page) ==========
 async function printSelectedBills() {
     if (selectedSales.size === 0) { alert("Please select at least one bill to print."); return; }
     const saleIds = Array.from(selectedSales);
@@ -1274,7 +1353,7 @@ async function printSelectedBills() {
     setTimeout(() => { printWindow.close(); }, 500);
 }
 
-// Download selected bills (updated)
+// Download selected bills
 async function downloadSelectedBills() {
     if (selectedSales.size === 0) { 
         alert("Please select at least one bill."); 
@@ -1350,7 +1429,7 @@ function openEditModal(saleId) {
     const items = sale.Items || [];
     const subtotal = items.reduce((sum, it) => sum + (it.total || it.price * it.qty), 0);
     const courier = (sale.GrandTotal || 0) - subtotal;
-    document.getElementById('editCourier').value = Math.max(0, courier).toFixed(2); // ensure non-negative
+    document.getElementById('editCourier').value = Math.max(0, courier).toFixed(2);
 
     editingItems = JSON.parse(JSON.stringify(items));
     renderEditItems();
@@ -1379,7 +1458,7 @@ function renderEditItems() {
 function updateEditItem(idx, field, value) {
     if (field === 'qty') {
         let newQty = parseInt(value);
-        if (isNaN(newQty) || newQty < 1) newQty = 1;  // Prevent negative/zero
+        if (isNaN(newQty) || newQty < 1) newQty = 1;
         editingItems[idx].qty = newQty;
         const row = document.getElementById('editItemsBody').children[idx];
         if (row) {
@@ -1398,7 +1477,7 @@ function removeEditItem(idx) {
 function addItemToEditBill() {
     const selVal = document.getElementById('editItemSearch').value.trim();
     let qty = parseInt(document.getElementById('editItemQty').value);
-    if (isNaN(qty) || qty < 1) qty = 1; // ensure valid qty
+    if (isNaN(qty) || qty < 1) qty = 1;
     if (!selVal) { alert("Select item"); return; }
     const idMatch = selVal.match(/^([^\s-]+)/);
     if (!idMatch) { alert("Invalid item"); return; }
@@ -1426,7 +1505,7 @@ function addItemToEditBill() {
 function updateEditTotals() {
     const subtotal = editingItems.reduce((sum, it) => sum + (parseFloat(it.price) * parseInt(it.qty)), 0);
     let courier = parseFloat(document.getElementById('editCourier').value) || 0;
-    if (courier < 0) courier = 0; // ensure non-negative
+    if (courier < 0) courier = 0;
     document.getElementById('editSubtotal').textContent = subtotal.toFixed(2);
     document.getElementById('editGrandTotal').textContent = (subtotal + courier).toFixed(2);
 }
@@ -1465,7 +1544,6 @@ async function saveEditedBill() {
         if (delta !== 0) stockUpdates[itemId] = delta;
     }
 
-    // Real-time stock check from Firestore
     for (const [itemId, delta] of Object.entries(stockUpdates)) {
         const stockDocRef = db.collection('stock').doc(itemId);
         const stockSnap = await stockDocRef.get();
@@ -1619,6 +1697,45 @@ function switchTab(tabName) {
             courierChargeEl.value = defaultCourier;
         }
         updateTotals();
+    }
+}
+
+// ================== AI ASSISTANT FUNCTIONS ==================
+function openAIModal() {
+    document.getElementById('aiModal').style.display = 'flex';
+    document.getElementById('aiPrompt').focus();
+}
+
+function closeAIModal() {
+    document.getElementById('aiModal').style.display = 'none';
+    document.getElementById('aiResponse').innerText = 'Your answer will appear here...';
+    document.getElementById('aiPrompt').value = '';
+}
+
+async function askAI() {
+    const prompt = document.getElementById('aiPrompt').value.trim();
+    const responseDiv = document.getElementById('aiResponse');
+    const askBtn = document.getElementById('askAiBtn');
+
+    if (!prompt) {
+        responseDiv.innerText = '⚠️ Please enter a question.';
+        return;
+    }
+
+    askBtn.disabled = true;
+    askBtn.textContent = '⏳ Thinking...';
+    responseDiv.innerText = 'Connecting to AI...';
+
+    try {
+        // Using Puter.js – free, no API key, GPT-4o
+        const answer = await puter.ai.chat(prompt, { model: 'gpt-4o' });
+        responseDiv.innerText = answer;
+    } catch (err) {
+        console.error(err);
+        responseDiv.innerText = '❌ Error: ' + err.message;
+    } finally {
+        askBtn.disabled = false;
+        askBtn.textContent = '🔮 Ask';
     }
 }
 </script>
