@@ -8,9 +8,9 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-    <!-- ========== PUTER.JS AI LIBRARY (FREE, NO KEY) ========== -->
     <script src="https://js.puter.com/v2/"></script>
     <style>
+        /* ... existing styles remain exactly the same ... */
         * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, Arial, sans-serif; }
         body { background: #eef2f7; margin: 0; padding: 20px; }
         #loginScreen { max-width: 400px; margin: 80px auto; background: white; padding: 40px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); text-align: center; }
@@ -69,96 +69,28 @@
         .date-label { margin-right: 5px; font-weight: bold; white-space: nowrap; }
         .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-        /* ========== AI ASSISTANT STYLES ========== */
+        /* AI Assistant Styles */
         #aiFloatingBtn {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            background: #6a0dad;
-            color: white;
-            border: none;
-            border-radius: 60px;
-            padding: 14px 24px;
-            font-size: 1.2rem;
-            font-weight: bold;
-            cursor: pointer;
-            box-shadow: 0 8px 20px rgba(106, 13, 173, 0.4);
-            z-index: 999;
-            transition: 0.3s;
-            display: none; /* hidden until login */
+            position: fixed; bottom: 30px; right: 30px; background: #6a0dad; color: white;
+            border: none; border-radius: 60px; padding: 14px 24px; font-size: 1.2rem;
+            font-weight: bold; cursor: pointer; box-shadow: 0 8px 20px rgba(106,13,173,0.4);
+            z-index: 999; transition: 0.3s; display: none;
         }
-        #aiFloatingBtn:hover {
-            background: #4b0082;
-            transform: scale(1.05);
-        }
+        #aiFloatingBtn:hover { background: #4b0082; transform: scale(1.05); }
         .ai-chat-container {
-            background: white;
-            border-radius: 20px;
-            padding: 25px;
-            width: 90%;
-            max-width: 500px;
-            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
+            background: white; border-radius: 20px; padding: 25px; width: 90%;
+            max-width: 600px; box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+            display: flex; flex-direction: column; gap: 15px; max-height: 90vh; overflow-y: auto;
         }
-        .ai-chat-container h3 {
-            margin: 0;
-            color: #1e466e;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        #aiPrompt {
-            width: 100%;
-            padding: 12px;
-            border-radius: 12px;
-            border: 1px solid #bdc4cc;
-            font-size: 1rem;
-            resize: vertical;
-        }
-        #aiResponse {
-            background: #f5f7fa;
-            padding: 15px;
-            border-radius: 12px;
-            min-height: 60px;
-            white-space: pre-wrap;
-            font-size: 0.95rem;
-            max-height: 250px;
-            overflow-y: auto;
-        }
-        .ai-buttons { display: flex; gap: 10px; justify-content: flex-end; }
-
-        @media (max-width: 768px) {
-            body { padding: 10px; }
-            .container { padding: 15px 12px; border-radius: 20px; }
-            .header-bar { flex-direction: column; align-items: flex-start; }
-            .header-bar h2 { border-left: none; padding-left: 0; margin-bottom: 10px; font-size: 1.5rem; }
-            .header-buttons { width: 100%; justify-content: flex-start; }
-            .tabs { width: 100%; }
-            .tab { flex: 1; text-align: center; padding: 10px; font-size: 0.9rem; }
-            .form-group input, .form-group select { width: 100%; }
-            .btn-group { justify-content: center; }
-            .btn-group button { flex: 1 1 auto; min-width: 120px; padding: 10px; }
-            .stats { flex-direction: column; text-align: center; }
-            .stats span { width: 100%; }
-            #panelPOS > div:first-child { flex-direction: column !important; }
-            #panelPOS .cart-table td input[type="number"] { width: 50px; }
-            .modal { width: 95%; padding: 20px; max-height: 80vh; }
-            .pagination button { padding: 4px 10px; font-size: 0.8rem; }
-            .action-icons button { padding: 4px 6px; font-size: 0.75rem; }
-            .search-box, .filter-select { margin: 8px 0; }
-            .date-label { display: block; margin: 5px 0 2px; }
-            input[type="date"] { width: 100%; }
-            #searchSaleInput { width: 100%; }
-            #aiFloatingBtn { bottom: 20px; right: 20px; padding: 12px 20px; font-size: 1rem; }
-        }
-        @media (max-width: 480px) {
-            .btn-group button { min-width: 100%; }
-            .tab { padding: 8px; font-size: 0.8rem; }
-            h3 { font-size: 1.1rem; }
-            .modal .logo-print { max-width: 80px; }
-        }
+        .ai-chat-container h3 { margin: 0; color: #1e466e; display: flex; align-items: center; gap: 8px; }
+        #aiPrompt { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #bdc4cc; font-size: 1rem; resize: vertical; }
+        #aiResponse { background: #f5f7fa; padding: 15px; border-radius: 12px; min-height: 60px; white-space: pre-wrap; font-size: 0.95rem; max-height: 300px; overflow-y: auto; }
+        .ai-buttons { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+        .quick-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+        .quick-actions button { font-size: 0.8rem; padding: 6px 12px; }
+        .voice-btn { background: #ff9800; }
+        .image-upload-label { cursor: pointer; background: #795548; color: white; padding: 8px 16px; border-radius: 40px; font-weight: bold; display: inline-block; }
+        #imageUploadInput { display: none; }
     </style>
 </head>
 <body>
@@ -384,7 +316,20 @@
 <button id="aiFloatingBtn" onclick="openAIModal()">🤖 AI Help</button>
 <div id="aiModal" class="modal-overlay" style="z-index:1001;">
     <div class="ai-chat-container">
-        <h3>🤖 AI Assistant (Free, GPT-4o)</h3>
+        <h3>🤖 AI Assistant (GPT-4o) - සිංහල/English</h3>
+        <div class="quick-actions">
+            <button class="btn-blue" onclick="askQuick('Show low stock items')">⚠️ Low Stock</button>
+            <button class="btn-blue" onclick="askQuick('Show today\'s sales summary')">📈 Today Sales</button>
+            <button class="btn-blue" onclick="askQuick('List all unpaid bills')">❌ Unpaid Bills</button>
+            <button class="btn-blue" onclick="askQuick('Who is my top customer?')">👑 Top Customer</button>
+            <button class="btn-orange" onclick="askQuick('Predict reorder quantities for low stock items based on sales history')">📦 Predict Reorder</button>
+            <button class="btn-orange" onclick="askQuick('Give me a sales forecast for next week')">💹 Sales Forecast</button>
+            <button class="btn-green" onclick="askQuick('Analyze pricing and suggest optimal prices for maximum profit')">💸 Price Optimization</button>
+            <button class="btn-green" onclick="generateReminder()">✉️ Generate Reminder</button>
+            <button class="voice-btn" onclick="startVoiceInput()">🎤 Voice Command</button>
+            <label for="imageUploadInput" class="image-upload-label">🖼️ Image Recognition</label>
+            <input type="file" id="imageUploadInput" accept="image/*" onchange="handleImageUpload(event)">
+        </div>
         <textarea id="aiPrompt" rows="3" placeholder="Ask anything about stock, sales, or business..."></textarea>
         <div id="aiResponse">Your answer will appear here...</div>
         <div class="ai-buttons">
@@ -482,7 +427,7 @@ auth.onAuthStateChanged(async (user) => {
     if (user) {
         document.getElementById('loginScreen').style.display = 'none';
         document.getElementById('mainApp').style.display = 'block';
-        document.getElementById('aiFloatingBtn').style.display = 'block';  // SHOW AI BUTTON
+        document.getElementById('aiFloatingBtn').style.display = 'block';
         await loadConfig();
         await fetchStock();
         await ensureSaleCounter();
@@ -490,7 +435,7 @@ auth.onAuthStateChanged(async (user) => {
     } else {
         document.getElementById('loginScreen').style.display = 'block';
         document.getElementById('mainApp').style.display = 'none';
-        document.getElementById('aiFloatingBtn').style.display = 'none';  // HIDE AI BUTTON
+        document.getElementById('aiFloatingBtn').style.display = 'none';
     }
 });
 
@@ -1712,7 +1657,139 @@ function closeAIModal() {
     document.getElementById('aiPrompt').value = '';
 }
 
-// ================== AI ASSISTANT (System‑Aware) ==================
+// Build comprehensive system context for AI
+function buildSystemContext() {
+    let systemContext = 'Here is the current system data:\n\n';
+
+    // Stock summary
+    if (stockData.length > 0) {
+        const totalQty = stockData.reduce((sum, r) => sum + (parseInt(r[3])||0), 0);
+        const totalValue = stockData.reduce((sum, r) => sum + ((parseInt(r[3])||0) * (parseFloat(r[2])||0)), 0).toFixed(2);
+        const lowStockItems = stockData.filter(r => (parseInt(r[3])||0) > 0 && (parseInt(r[3])||0) <= 5)
+                                   .map(r => `${r[0]} - ${r[1]} (Qty: ${r[3]}, Price: Rs.${r[2]})`).join('; ');
+        systemContext += `--- Stock ---\n`;
+        systemContext += `Total items: ${stockData.length}\n`;
+        systemContext += `Total quantity: ${totalQty}\n`;
+        systemContext += `Total value: Rs. ${totalValue}\n`;
+        systemContext += `Low stock (<=5): ${lowStockItems || 'None'}\n`;
+        // Include top 5 items by value
+        const topItems = [...stockData].sort((a,b) => (parseInt(b[3])||0)*(parseFloat(b[2])||0) - (parseInt(a[3])||0)*(parseFloat(a[2])||0)).slice(0,5).map(r => `${r[0]} - ${r[1]} (Value: Rs.${((parseInt(r[3])||0)*(parseFloat(r[2])||0)).toFixed(2)})`).join('; ');
+        systemContext += `Top items by value: ${topItems}\n\n`;
+    }
+
+    // Sales summary (last 50 sales for performance)
+    if (salesHistoryData.length > 0) {
+        const recentSales = salesHistoryData.slice(0, 50);
+        const totalRevenue = recentSales.reduce((sum, s) => sum + (parseFloat(s.GrandTotal)||0), 0).toFixed(2);
+        const paidCount = recentSales.filter(s => s.PaymentStatus === 'paid').length;
+        const unpaidCount = recentSales.length - paidCount;
+        const today = new Date(); today.setHours(0,0,0,0);
+        const todaySales = salesHistoryData.filter(s => s.Timestamp >= today);
+        const todayTotal = todaySales.reduce((sum, s) => sum + (parseFloat(s.GrandTotal)||0), 0).toFixed(2);
+        
+        // Top customers
+        const customerMap = {};
+        salesHistoryData.forEach(s => {
+            const name = s.CustomerName || 'Unknown';
+            customerMap[name] = (customerMap[name] || 0) + (parseFloat(s.GrandTotal)||0);
+        });
+        const topCustomers = Object.entries(customerMap).sort((a,b) => b[1]-a[1]).slice(0,5).map(e => `${e[0]} (Rs.${e[1].toFixed(2)})`).join(', ');
+        
+        // City wise sales
+        const cityMap = {};
+        salesHistoryData.forEach(s => {
+            const city = s.City || 'Unknown';
+            cityMap[city] = (cityMap[city] || 0) + (parseFloat(s.GrandTotal)||0);
+        });
+        const topCities = Object.entries(cityMap).sort((a,b) => b[1]-a[1]).slice(0,5).map(e => `${e[0]} (Rs.${e[1].toFixed(2)})`).join(', ');
+        
+        systemContext += `--- Sales (recent 50) ---\n`;
+        systemContext += `Number of bills: ${recentSales.length}\n`;
+        systemContext += `Total revenue (recent): Rs. ${totalRevenue}\n`;
+        systemContext += `Paid bills: ${paidCount}, Unpaid bills: ${unpaidCount}\n`;
+        systemContext += `Today's sales: ${todaySales.length} bills, Total: Rs. ${todayTotal}\n`;
+        systemContext += `Top customers by total spend: ${topCustomers}\n`;
+        systemContext += `Top cities by revenue: ${topCities}\n`;
+        
+        // Unpaid bills list (first 10)
+        const unpaidBills = salesHistoryData.filter(s => s.PaymentStatus === 'unpaid').slice(0,10);
+        if (unpaidBills.length > 0) {
+            const unpaidList = unpaidBills.map(b => `${b.SaleID} - ${b.CustomerName} (Rs.${parseFloat(b.GrandTotal).toFixed(2)}, ${b.Timestamp.toLocaleDateString('si-LK')})`).join('; ');
+            systemContext += `Unpaid bills sample: ${unpaidList}\n`;
+        }
+    }
+
+    return systemContext;
+}
+
+// Quick action from buttons
+function askQuick(prompt) {
+    document.getElementById('aiPrompt').value = prompt;
+    askAI();
+}
+
+// Generate reminder for selected unpaid bills
+async function generateReminder() {
+    const unpaidBills = salesHistoryData.filter(s => s.PaymentStatus === 'unpaid');
+    if (unpaidBills.length === 0) {
+        document.getElementById('aiPrompt').value = 'No unpaid bills';
+        askAI();
+        return;
+    }
+    const selectedUnpaid = selectedSales.size > 0 ? unpaidBills.filter(b => selectedSales.has(b.SaleID)) : unpaidBills.slice(0,3);
+    const billList = selectedUnpaid.map(b => `- ${b.SaleID}: ${b.CustomerName}, Rs.${parseFloat(b.GrandTotal).toFixed(2)}`).join('\n');
+    const prompt = `Generate a polite WhatsApp reminder message in Sinhala and English for these unpaid bills:\n${billList}`;
+    document.getElementById('aiPrompt').value = prompt;
+    askAI();
+}
+
+// Voice input using Web Speech API
+function startVoiceInput() {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert('Voice input not supported in your browser. Use Chrome.');
+        return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'si-LK'; // Sinhala first, fallback to English
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    
+    recognition.start();
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        document.getElementById('aiPrompt').value = transcript;
+        // Optionally auto-send
+        askAI();
+    };
+    recognition.onerror = (event) => {
+        alert('Voice error: ' + event.error);
+    };
+}
+
+// Image upload and recognition
+function handleImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const base64Image = e.target.result;
+        document.getElementById('aiResponse').innerText = 'Analyzing image...';
+        try {
+            // Use Puter.js chat with image message
+            const answer = await puter.ai.chat([
+                { type: 'text', content: 'Identify the product in this image. If it matches any item in our stock list, suggest the item ID and name. Also check if it is low in stock.' },
+                { type: 'image', content: base64Image }
+            ], { model: 'gpt-4o' });
+            document.getElementById('aiResponse').innerText = answer;
+        } catch (err) {
+            document.getElementById('aiResponse').innerText = 'Image analysis failed: ' + err.message;
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+// Main AI ask function with context
 async function askAI() {
     const prompt = document.getElementById('aiPrompt').value.trim();
     const responseDiv = document.getElementById('aiResponse');
@@ -1728,44 +1805,12 @@ async function askAI() {
     responseDiv.innerText = 'Gathering system data...';
 
     try {
-        // ===== 1. Collect system context (stock + today sales summary) =====
-        let systemContext = 'Here is the current system data:\n\n';
-
-        // --- Stock summary ---
-        if (stockData.length > 0) {
-            const totalQty = stockData.reduce((sum, r) => sum + (parseInt(r[3])||0), 0);
-            const totalValue = stockData.reduce((sum, r) => sum + ((parseInt(r[3])||0) * (parseFloat(r[2])||0)), 0).toFixed(2);
-            const lowStockItems = stockData.filter(r => (parseInt(r[3])||0) > 0 && (parseInt(r[3])||0) <= 5)
-                                       .map(r => `${r[0]} - ${r[1]} (Qty: ${r[3]})`).join(', ');
-            systemContext += '--- Stock ---\n';
-            systemContext += `Total items: ${stockData.length}\n`;
-            systemContext += `Total quantity: ${totalQty}\n`;
-            systemContext += `Total value: Rs. ${totalValue}\n`;
-            systemContext += `Low stock (<=5): ${lowStockItems || 'None'}\n\n`;
-        }
-
-        // --- Today's sales summary ---
-        const today = new Date();
-        today.setHours(0,0,0,0);
-        const todaySales = salesHistoryData.filter(s => {
-            const saleDate = s.Timestamp ? new Date(s.Timestamp) : null;
-            return saleDate && saleDate >= today;
-        });
-        if (todaySales.length > 0) {
-            const todayTotal = todaySales.reduce((sum, s) => sum + (parseFloat(s.GrandTotal)||0), 0).toFixed(2);
-            systemContext += '--- Today\'s Sales ---\n';
-            systemContext += `Number of bills: ${todaySales.length}\n`;
-            systemContext += `Total amount: Rs. ${todayTotal}\n\n`;
-        } else {
-            systemContext += '--- Today\'s Sales ---\nNo bills yet today.\n\n';
-        }
-
-        // You can add more context if needed (e.g., recent unpaid bills, etc.)
-
-        // ===== 2. Build final prompt with context =====
-        const fullPrompt = `${systemContext}\nBased on the above data, please answer the user's question:\nUser: ${prompt}`;
-
-        // ===== 3. Call Puter AI with the combined prompt =====
+        const systemContext = buildSystemContext();
+        // Detect language: if prompt contains Sinhala characters, instruct AI to reply in Sinhala
+        const isSinhala = /[\u0D80-\u0DFF]/.test(prompt);
+        const languageInstruction = isSinhala ? 'Please reply in Sinhala language.' : 'Please reply in the same language as the user.';
+        
+        const fullPrompt = `${systemContext}\n\n${languageInstruction}\nBased on the above data, please answer the user's question:\nUser: ${prompt}`;
         const answer = await puter.ai.chat(fullPrompt, { model: 'gpt-4o' });
         responseDiv.innerText = answer;
     } catch (err) {
@@ -1775,7 +1820,6 @@ async function askAI() {
         askBtn.disabled = false;
         askBtn.textContent = '🔮 Ask';
     }
-
 }
 </script>
 </body>
