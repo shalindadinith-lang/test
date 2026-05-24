@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>Smart Stock + POS (Firebase) - with AI & Voice POS</title>
+    <title>Smart Stock + POS (Firebase) - AI Fallback</title>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
@@ -68,7 +68,6 @@
         .date-label { margin-right: 5px; font-weight: bold; white-space: nowrap; }
         .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-        /* AI Assistant Styles */
         #aiFloatingBtn {
             position: fixed; bottom: 30px; right: 30px; background: #6a0dad; color: white;
             border: none; border-radius: 60px; padding: 14px 24px; font-size: 1.2rem;
@@ -81,7 +80,7 @@
             max-width: 600px; box-shadow: 0 15px 40px rgba(0,0,0,0.3);
             display: flex; flex-direction: column; gap: 15px; max-height: 90vh; overflow-y: auto;
         }
-        .ai-chat-container h3 { margin: 0; color: #1e466e; display: flex; align-items: center; gap: 8px; }
+        .ai-chat-container h3 { margin: 0; color: #1e466e; }
         #aiPrompt { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #bdc4cc; font-size: 1rem; resize: vertical; }
         #aiResponse { background: #f5f7fa; padding: 15px; border-radius: 12px; min-height: 60px; white-space: pre-wrap; font-size: 0.95rem; max-height: 300px; overflow-y: auto; }
         .ai-buttons { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
@@ -166,7 +165,6 @@
                         <datalist id="itemList"></datalist>
                         <input type="number" id="itemQty" placeholder="Qty" value="1" min="1" style="max-width:100px;">
                         <button id="addToCartBtn" class="btn-green">➕ Add to Cart</button>
-                        <button id="voicePosBtn" class="voice-btn" onclick="startVoicePOS()" title="Voice Command for POS">🎤 Voice</button>
                     </div>
                     <div id="posMsg" class="msg-area"></div>
                 </div>
@@ -298,7 +296,6 @@
         <button onclick="closeSettings()" style="margin-left:10px; background:#5a6874;">Cancel</button>
     </div>
 </div>
-<!-- Reports Modal -->
 <div id="reportsModal" class="modal-overlay">
     <div class="modal" style="max-width:1300px; max-height:90vh;">
         <h2>📊 Full Report</h2>
@@ -310,11 +307,11 @@
     </div>
 </div>
 
-<!-- ================== AI ASSISTANT MODAL ================== -->
+<!-- AI ASSISTANT MODAL -->
 <button id="aiFloatingBtn" onclick="openAIModal()">🤖 AI Help</button>
 <div id="aiModal" class="modal-overlay" style="z-index:1001;">
     <div class="ai-chat-container">
-        <h3>🤖 AI Assistant (GPT-4o) - සිංහල/English</h3>
+        <h3>🤖 AI Assistant (GPT-4o / Hugging Face)</h3>
         <div class="quick-actions">
             <button class="btn-blue" onclick="askQuick('Show low stock items')">⚠️ Low Stock</button>
             <button class="btn-blue" onclick="askQuick('Show today\'s sales summary')">📈 Today Sales</button>
@@ -350,22 +347,23 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 
+// ================== HUGGING FACE TOKEN ==================
+// ඔබේ නොමිලේ Hugging Face token එක https://huggingface.co/settings/tokens වෙතින් ලබාගෙන පහත දාන්න
+const HF_TOKEN = "hf_your_token_here"; // <-- මෙතනට ඔබේ token එක දාන්න
+
 // Global variables
 let stockData = [], filteredStock = [], cart = [], selectedSales = new Set();
 let salesHistoryData = [];
 let defaultCourier = 450;
-const ROWS_PER_PAGE = 50;
-const SALES_PER_PAGE = 20;
+const ROWS_PER_PAGE = 50, SALES_PER_PAGE = 20;
 let currentPage = 1, salesCurrentPage = 1, searchTimeout;
 const billCache = {};
-let isDeletedView = false;
-let paymentFilter = 'all';
-let reportStockData = [];
-let reportSalesData = [];
+let isDeletedView = false, paymentFilter = 'all';
+let reportStockData = [], reportSalesData = [];
 
 const LOGO_URL = "https://i.postimg.cc/7Y8D56Py/Blue-and-Orange-Minimalist-Gaming-Laptop-Sale-Instagram-Post-(16).png";
 
-// DOM Elements
+// DOM elements
 const stockIdInp = document.getElementById('stockId');
 const stockNameInp = document.getElementById('stockName');
 const stockPriceInp = document.getElementById('stockPrice');
@@ -408,15 +406,9 @@ document.getElementById('loginBtn').onclick = async () => {
     const email = document.getElementById('loginEmail').value.trim();
     const password = document.getElementById('loginPassword').value.trim();
     const loginError = document.getElementById('loginError');
-    if (!email || !password) {
-        loginError.textContent = "Please enter email and password";
-        return;
-    }
-    try {
-        await auth.signInWithEmailAndPassword(email, password);
-    } catch (err) {
-        loginError.textContent = err.message;
-    }
+    if (!email || !password) { loginError.textContent = "Please enter email and password"; return; }
+    try { await auth.signInWithEmailAndPassword(email, password); } 
+    catch (err) { loginError.textContent = err.message; }
 };
 
 auth.onAuthStateChanged(async (user) => {
@@ -424,10 +416,7 @@ auth.onAuthStateChanged(async (user) => {
         document.getElementById('loginScreen').style.display = 'none';
         document.getElementById('mainApp').style.display = 'block';
         document.getElementById('aiFloatingBtn').style.display = 'block';
-        await loadConfig();
-        await fetchStock();
-        await ensureSaleCounter();
-        await searchSales();
+        await loadConfig(); await fetchStock(); await ensureSaleCounter(); await searchSales();
     } else {
         document.getElementById('loginScreen').style.display = 'block';
         document.getElementById('mainApp').style.display = 'none';
@@ -437,295 +426,184 @@ auth.onAuthStateChanged(async (user) => {
 
 async function ensureSaleCounter() {
     const counterRef = db.collection('metadata').doc('saleCounter');
-    const docSnap = await counterRef.get();
-    if (!docSnap.exists) {
-        await counterRef.set({ lastNumber: 1309 });
-    }
+    if (!(await counterRef.get()).exists) await counterRef.set({ lastNumber: 1309 });
 }
 
-// ================== CONFIG ==================
 async function loadConfig() {
     try {
-        const docSnap = await db.collection('config').doc('default').get();
-        if (docSnap.exists) {
-            const data = docSnap.data();
-            defaultCourier = data.DefaultCourier || 450;
-        }
+        const snap = await db.collection('config').doc('default').get();
+        defaultCourier = snap.exists ? (snap.data().DefaultCourier || 450) : 450;
         courierChargeEl.value = defaultCourier;
-    } catch (e) {
-        console.error('Config load error:', e);
-        courierChargeEl.value = defaultCourier;
-    }
+    } catch(e) { courierChargeEl.value = defaultCourier; }
 }
 
 // ================== SETTINGS ==================
 async function openSettings() {
     document.getElementById('newDefaultCourier').value = defaultCourier;
     const counterRef = db.collection('metadata').doc('saleCounter');
-    const docSnap = await counterRef.get();
-    let nextNum = 1310;
-    if (docSnap.exists) {
-        nextNum = (docSnap.data().lastNumber || 1309) + 1;
-    }
+    const snap = await counterRef.get();
+    let nextNum = snap.exists ? (snap.data().lastNumber || 1309) + 1 : 1310;
     document.getElementById('currentNextId').textContent = `JJ${nextNum}`;
     document.getElementById('newStartNumber').value = '';
     document.getElementById('settingsModal').style.display = 'flex';
 }
 function closeSettings() { document.getElementById('settingsModal').style.display = 'none'; }
 async function saveSettings() {
-    const newCourier = parseFloat(document.getElementById('newDefaultCourier').value) || 0;
-    try {
-        await db.collection('config').doc('default').set({ DefaultCourier: newCourier }, { merge: true });
-        defaultCourier = newCourier;
-        courierChargeEl.value = defaultCourier;
-        alert('Settings saved');
-        closeSettings();
-    } catch (err) { alert('Error: ' + err.message); }
+    const courier = parseFloat(document.getElementById('newDefaultCourier').value) || 0;
+    await db.collection('config').doc('default').set({ DefaultCourier: courier }, { merge: true });
+    defaultCourier = courier; courierChargeEl.value = courier; alert('Saved'); closeSettings();
 }
 async function resetSaleCounter() {
-    const newStart = parseInt(document.getElementById('newStartNumber').value);
-    if (isNaN(newStart) || newStart < 1) {
-        alert('Please enter a valid start number (1 or more)');
-        return;
-    }
-    if (!confirm(`Next bill will start as JJ${newStart}. Proceed?`)) return;
-    try {
-        await db.collection('metadata').doc('saleCounter').set({ lastNumber: newStart - 1 });
-        alert(`Sale Counter updated successfully. Next: JJ${newStart}`);
-        document.getElementById('currentNextId').textContent = `JJ${newStart}`;
-        document.getElementById('newStartNumber').value = '';
-    } catch (err) {
-        alert('Error: ' + err.message);
-    }
+    const start = parseInt(document.getElementById('newStartNumber').value);
+    if (isNaN(start) || start < 1) return alert('Invalid number');
+    if (!confirm(`Next bill will start as JJ${start}. Proceed?`)) return;
+    await db.collection('metadata').doc('saleCounter').set({ lastNumber: start - 1 });
+    alert(`Counter updated. Next: JJ${start}`); closeSettings();
 }
 
 // ================== STOCK DATA ==================
 async function fetchStock() {
-    showStockMsg("Loading data...");
-    stockTableBody.innerHTML = "<tr><td colspan='4'>Loading from Database...</td></tr>";
+    showStockMsg("Loading...");
+    stockTableBody.innerHTML = "<tr><td colspan='4'>Loading...</td></tr>";
     try {
-        let allDocs = [];
-        let lastDoc = null;
-        let hasMore = true;
+        let allDocs = [], lastDoc = null, hasMore = true;
         while (hasMore) {
-            let query = db.collection('stock').orderBy('__name__').limit(500);
-            if (lastDoc) query = query.startAfter(lastDoc);
-            const snapshot = await query.get();
-            if (snapshot.empty) {
-                hasMore = false;
-            } else {
-                allDocs.push(...snapshot.docs);
-                lastDoc = snapshot.docs[snapshot.docs.length - 1];
-                if (snapshot.docs.length < 500) hasMore = false;
-            }
+            let q = db.collection('stock').orderBy('__name__').limit(500);
+            if (lastDoc) q = q.startAfter(lastDoc);
+            const snap = await q.get();
+            if (snap.empty) { hasMore = false; }
+            else { allDocs.push(...snap.docs); lastDoc = snap.docs[snap.docs.length-1]; if (snap.docs.length < 500) hasMore = false; }
         }
-        stockData = [];
-        allDocs.forEach(doc => {
-            const data = doc.data();
-            stockData.push([doc.id, data.name, data.price, data.qty]);
-        });
-        filteredStock = stockData;
-        currentPage = 1;
-        renderStockTable();
-        updateStockStats(filteredStock);
-        checkLowStock();
-        updateItemDatalist();
-        showStockMsg(`Loaded ${stockData.length} items from database`);
-    } catch (err) {
-        showStockMsg("Error: " + err.message, true);
-    }
+        stockData = allDocs.map(doc => [doc.id, doc.data().name, doc.data().price, doc.data().qty]);
+        filteredStock = stockData; currentPage = 1;
+        renderStockTable(); updateStockStats(filteredStock); checkLowStock(); updateItemDatalist();
+        showStockMsg(`Loaded ${stockData.length} items`);
+    } catch(err) { showStockMsg("Error: " + err.message, true); }
 }
 
 function renderStockTable() {
     stockTableBody.innerHTML = "";
-    const start = (currentPage - 1) * ROWS_PER_PAGE;
-    const pageData = filteredStock.slice(start, start + ROWS_PER_PAGE);
-    if (!pageData.length) {
-        stockTableBody.innerHTML = "</td><td colspan='4'>No data</td></tr>";
-    } else {
-        pageData.forEach(row => {
-            const tr = document.createElement('tr');
-            tr.onclick = () => {
-                stockIdInp.value = row[0]; stockNameInp.value = row[1];
-                stockPriceInp.value = row[2]; stockQtyInp.value = '';
-            };
-            tr.innerHTML = `<td>${escapeHtml(row[0])}</td><td>${escapeHtml(row[1])}</td><td>${parseFloat(row[2]).toFixed(2)}</td><td>${parseInt(row[3])}</td>`;
-            stockTableBody.appendChild(tr);
-        });
-    }
+    const start = (currentPage-1)*ROWS_PER_PAGE;
+    const page = filteredStock.slice(start, start+ROWS_PER_PAGE);
+    if (!page.length) { stockTableBody.innerHTML = "<tr><td colspan='4'>No data</td></tr>"; return; }
+    page.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.onclick = () => { stockIdInp.value = r[0]; stockNameInp.value = r[1]; stockPriceInp.value = r[2]; stockQtyInp.value = ''; };
+        tr.innerHTML = `<td>${escapeHtml(r[0])}</td><td>${escapeHtml(r[1])}</td><td>${parseFloat(r[2]).toFixed(2)}</td><td>${parseInt(r[3])}</td>`;
+        stockTableBody.appendChild(tr);
+    });
     renderPagination();
 }
 
 function renderPagination() {
     paginationDiv.innerHTML = "";
-    const totalPages = Math.ceil(filteredStock.length / ROWS_PER_PAGE) || 1;
-    if (totalPages <= 1) return;
-    const prevBtn = document.createElement('button');
-    prevBtn.textContent = 'Prev'; prevBtn.disabled = currentPage === 1;
-    prevBtn.onclick = () => { if (currentPage > 1) { currentPage--; renderStockTable(); } };
-    paginationDiv.appendChild(prevBtn);
-    for (let i = 1; i <= totalPages; i++) {
-        const btn = document.createElement('button');
-        btn.textContent = i;
-        if (i === currentPage) btn.classList.add('active-page');
-        btn.onclick = () => { currentPage = i; renderStockTable(); };
+    const pages = Math.ceil(filteredStock.length/ROWS_PER_PAGE) || 1;
+    if (pages <= 1) return;
+    const prev = document.createElement('button'); prev.textContent='Prev'; prev.disabled=currentPage===1;
+    prev.onclick = () => { if (currentPage>1) { currentPage--; renderStockTable(); } };
+    paginationDiv.appendChild(prev);
+    for (let i=1; i<=pages; i++) {
+        const btn = document.createElement('button'); btn.textContent=i;
+        if (i===currentPage) btn.classList.add('active-page');
+        btn.onclick = () => { currentPage=i; renderStockTable(); };
         paginationDiv.appendChild(btn);
     }
-    const nextBtn = document.createElement('button');
-    nextBtn.textContent = 'Next'; nextBtn.disabled = currentPage === totalPages;
-    nextBtn.onclick = () => { if (currentPage < totalPages) { currentPage++; renderStockTable(); } };
-    paginationDiv.appendChild(nextBtn);
+    const next = document.createElement('button'); next.textContent='Next'; next.disabled=currentPage===pages;
+    next.onclick = () => { if (currentPage<pages) { currentPage++; renderStockTable(); } };
+    paginationDiv.appendChild(next);
 }
 
 function updateStockStats(data) {
-    let totalQ = 0, totalVal = 0;
-    data.forEach(row => { let q = parseFloat(row[3])||0, p = parseFloat(row[2])||0; totalQ += q; totalVal += q*p; });
-    totalQtySpan.innerText = totalQ;
-    totalValueSpan.innerText = `Rs. ${totalVal.toFixed(2)}`;
+    let tQ=0, tV=0;
+    data.forEach(r => { let q=parseFloat(r[3])||0, p=parseFloat(r[2])||0; tQ+=q; tV+=q*p; });
+    totalQtySpan.innerText = tQ; totalValueSpan.innerText = `Rs. ${tV.toFixed(2)}`;
 }
 
 function checkLowStock() {
-    const visibleRows = document.querySelectorAll("#stockTable tbody tr");
-    const pageStart = (currentPage - 1) * ROWS_PER_PAGE;
-    visibleRows.forEach((row, idx) => {
-        const dataIdx = pageStart + idx;
+    const rows = document.querySelectorAll("#stockTable tbody tr");
+    const start = (currentPage-1)*ROWS_PER_PAGE;
+    rows.forEach((row, idx) => {
+        const dataIdx = start+idx;
         if (dataIdx < filteredStock.length) {
-            const qty = parseFloat(filteredStock[dataIdx][3]) || 0;
-            row.classList.toggle('low-stock', qty <= 5 && qty > 0);
+            row.classList.toggle('low-stock', (parseFloat(filteredStock[dataIdx][3])||0) <= 5 && (parseFloat(filteredStock[dataIdx][3])||0) > 0);
         }
     });
 }
 
 function filterStock() {
     const term = searchStockBox.value.toLowerCase();
-    filteredStock = term ? stockData.filter(row => 
-        String(row[0]).toLowerCase().includes(term) || String(row[1]).toLowerCase().includes(term) ||
-        String(row[2]).includes(term) || String(row[3]).includes(term)
-    ) : stockData;
-    currentPage = 1;
-    renderStockTable();
-    updateStockStats(filteredStock);
+    filteredStock = term ? stockData.filter(r => String(r[0]).toLowerCase().includes(term) || String(r[1]).toLowerCase().includes(term)) : stockData;
+    currentPage=1; renderStockTable(); updateStockStats(filteredStock);
 }
-searchStockBox.addEventListener('input', () => {
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(filterStock, 300);
-});
+searchStockBox.addEventListener('input', () => { clearTimeout(searchTimeout); searchTimeout = setTimeout(filterStock, 300); });
 
 // ================== STOCK CRUD ==================
 async function addStock() {
-    const id = stockIdInp.value.trim(), name = stockNameInp.value.trim(), price = parseFloat(stockPriceInp.value), qty = parseInt(stockQtyInp.value);
-    if (!id || !name || isNaN(price) || isNaN(qty)) { showStockMsg("Fill all fields", true); return; }
-    if (qty < 0) { showStockMsg("Quantity cannot be negative", true); return; }
-    try {
-        const docRef = db.collection('stock').doc(id);
-        const docSnap = await docRef.get();
-        if (docSnap.exists) { showStockMsg("This ID already exists", true); return; }
-        await docRef.set({ name, price, qty });
-        showStockMsg(`"${id}" added`);
-        clearStockForm();
-        await fetchStock();
-    } catch (err) { showStockMsg("Error: " + err.message, true); }
+    const id=stockIdInp.value.trim(), name=stockNameInp.value.trim(), price=parseFloat(stockPriceInp.value), qty=parseInt(stockQtyInp.value);
+    if (!id||!name||isNaN(price)||isNaN(qty)) return showStockMsg("Fill all fields", true);
+    if (qty<0) return showStockMsg("Qty cannot be negative", true);
+    if ((await db.collection('stock').doc(id).get()).exists) return showStockMsg("ID already exists", true);
+    await db.collection('stock').doc(id).set({ name, price, qty });
+    showStockMsg(`"${id}" added`); clearStockForm(); await fetchStock();
 }
 
 async function updateStock() {
-    const id = stockIdInp.value.trim(), name = stockNameInp.value.trim(), price = parseFloat(stockPriceInp.value), qty = parseInt(stockQtyInp.value);
-    if (!id || !name || isNaN(price) || isNaN(qty)) { showStockMsg("Fill all fields", true); return; }
-    if (qty < 0) { showStockMsg("Quantity cannot be negative", true); return; }
-    try {
-        const docRef = db.collection('stock').doc(id);
-        const docSnap = await docRef.get();
-        if (!docSnap.exists) { showStockMsg("Item not found", true); return; }
-        await docRef.update({ name, price, qty });
-        showStockMsg(`"${id}" updated`);
-        clearStockForm();
-        await fetchStock();
-    } catch (err) { showStockMsg("Error: " + err.message, true); }
+    const id=stockIdInp.value.trim(), name=stockNameInp.value.trim(), price=parseFloat(stockPriceInp.value), qty=parseInt(stockQtyInp.value);
+    if (!id||!name||isNaN(price)||isNaN(qty)) return showStockMsg("Fill all fields", true);
+    if (qty<0) return showStockMsg("Qty cannot be negative", true);
+    const doc = await db.collection('stock').doc(id).get();
+    if (!doc.exists) return showStockMsg("Item not found", true);
+    await db.collection('stock').doc(id).update({ name, price, qty });
+    showStockMsg(`"${id}" updated`); clearStockForm(); await fetchStock();
 }
 
 async function addToStock() {
-    const id = stockIdInp.value.trim();
-    const qtyToAdd = parseInt(stockQtyInp.value);
-    if (!id || isNaN(qtyToAdd) || qtyToAdd <= 0) { showStockMsg("Enter ID and amount to add", true); return; }
-    const name = stockNameInp.value.trim();
-    const price = parseFloat(stockPriceInp.value);
-    try {
-        const docRef = db.collection('stock').doc(id);
-        const docSnap = await docRef.get();
-        if (docSnap.exists) {
-            const current = docSnap.data();
-            const newQty = (current.qty || 0) + qtyToAdd;
-            const updateData = { qty: newQty };
-            if (name) updateData.name = name;
-            if (!isNaN(price)) updateData.price = price;
-            await docRef.update(updateData);
-            showStockMsg(`Added ${qtyToAdd} to "${id}". New quantity: ${newQty}`);
-        } else {
-            if (!name || isNaN(price)) { showStockMsg("New item requires name and price", true); return; }
-            await docRef.set({ name, price, qty: qtyToAdd });
-            showStockMsg(`"${id}" added as new item`);
-        }
-        clearStockForm();
-        await fetchStock();
-    } catch (err) { showStockMsg("Error: " + err.message, true); }
+    const id=stockIdInp.value.trim(); const qtyToAdd=parseInt(stockQtyInp.value);
+    if (!id||isNaN(qtyToAdd)||qtyToAdd<=0) return showStockMsg("Enter ID and amount", true);
+    const name=stockNameInp.value.trim(), price=parseFloat(stockPriceInp.value);
+    const docSnap = await db.collection('stock').doc(id).get();
+    if (docSnap.exists) {
+        const newQty = (docSnap.data().qty||0)+qtyToAdd;
+        const upd = { qty: newQty }; if (name) upd.name=name; if (!isNaN(price)) upd.price=price;
+        await db.collection('stock').doc(id).update(upd);
+        showStockMsg(`Added ${qtyToAdd} to "${id}". New qty: ${newQty}`);
+    } else {
+        if (!name||isNaN(price)) return showStockMsg("New item needs name & price", true);
+        await db.collection('stock').doc(id).set({ name, price, qty: qtyToAdd });
+        showStockMsg(`"${id}" added as new item`);
+    }
+    clearStockForm(); await fetchStock();
 }
 
 async function deleteStock() {
-    const id = stockIdInp.value.trim();
-    if (!id) { showStockMsg("ID required", true); return; }
+    const id=stockIdInp.value.trim();
+    if (!id) return showStockMsg("ID required", true);
     if (!confirm(`Delete "${id}"?`)) return;
-    try {
-        await db.collection('stock').doc(id).delete();
-        showStockMsg("Deleted");
-        clearStockForm();
-        await fetchStock();
-    } catch (err) { showStockMsg("Error: " + err.message, true); }
+    await db.collection('stock').doc(id).delete();
+    showStockMsg("Deleted"); clearStockForm(); await fetchStock();
 }
 
-function clearStockForm() { stockIdInp.value = stockNameInp.value = stockPriceInp.value = stockQtyInp.value = ""; }
+function clearStockForm() { stockIdInp.value=stockNameInp.value=stockPriceInp.value=stockQtyInp.value=""; }
 
 function exportStockCSV() {
-    if (!stockData.length) { showStockMsg("No data to export", true); return; }
-    let csvRows = [["ID","Name","Price","Quantity"]];
-    stockData.forEach(row => csvRows.push([row[0],row[1],row[2],row[3]]));
-    const csvContent = csvRows.map(r => r.join(",")).join("\n");
-    const blob = new Blob(["\uFEFF"+csvContent], {type:"text/csv;charset=utf-8"});
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `stock_backup_${new Date().toISOString().slice(0,19)}.csv`; a.click();
+    if (!stockData.length) return showStockMsg("No data", true);
+    const csv = [["ID","Name","Price","Quantity"]].concat(stockData.map(r => [r[0],r[1],r[2],r[3]]));
+    const blob = new Blob(["\uFEFF"+csv.map(r=>r.join(",")).join("\n")], {type:"text/csv;charset=utf-8"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `stock_${new Date().toISOString()}.csv`; a.click();
     showStockMsg("Stock CSV downloaded");
 }
 
 async function exportSalesCSV() {
-    try {
-        const snapshot = await db.collection('sales').orderBy('timestamp', 'desc').get();
-        if (snapshot.empty) {
-            showStockMsg("No sales data to export", true);
-            return;
-        }
-        const csvRows = [["JJ Number", "Customer Name", "Address", "City", "Bill Total (Rs.)", "Payment Status"]];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            csvRows.push([
-                doc.id,
-                data.customerName || '',
-                data.address || '',
-                data.city || '',
-                (data.grandTotal || 0).toFixed(2),
-                data.paymentStatus === 'paid' ? 'Paid' : 'Unpaid'
-            ]);
-        });
-        const csvContent = "\uFEFF" + csvRows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
-        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8" });
-        const link = document.createElement("a");
-        const url = URL.createObjectURL(blob);
-        link.href = url;
-        link.download = `sales_summary_${new Date().toISOString().slice(0,10)}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        showStockMsg("Sales summary CSV downloaded");
-    } catch (err) {
-        showStockMsg("Error exporting sales: " + err.message, true);
-    }
+    const snap = await db.collection('sales').orderBy('timestamp','desc').get();
+    if (snap.empty) return showStockMsg("No sales data", true);
+    const csv = [["JJ Number","Customer","Address","City","Total","Payment"]];
+    snap.forEach(doc => {
+        const d=doc.data();
+        csv.push([doc.id, d.customerName||'', d.address||'', d.city||'', (d.grandTotal||0).toFixed(2), d.paymentStatus==='paid'?'Paid':'Unpaid']);
+    });
+    const blob = new Blob(["\uFEFF"+csv.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n')], {type:"text/csv;charset=utf-8"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `sales_${new Date().toISOString()}.csv`; a.click();
+    showStockMsg("Sales CSV downloaded");
 }
 
 document.getElementById('addBtn').onclick = addStock;
@@ -738,133 +616,39 @@ document.getElementById('exportSalesCSVBtn').onclick = exportSalesCSV;
 
 // ================== POS ==================
 function updateItemDatalist() {
-    const datalist = document.getElementById('itemList');
-    datalist.innerHTML = "";
-    stockData.forEach(row => {
-        const opt = document.createElement('option');
-        opt.value = `${row[0]} - ${row[1]} (Rs.${row[2]})`;
-        datalist.appendChild(opt);
+    const dl = document.getElementById('itemList');
+    dl.innerHTML = "";
+    stockData.forEach(r => {
+        const o = document.createElement('option');
+        o.value = `${r[0]} - ${r[1]} (Rs.${r[2]})`;
+        dl.appendChild(o);
     });
 }
 function onItemSelect() {
-    const selected = itemSearch.value;
-    if (!selected) return;
-    const idPart = selected.split(' - ')[0].trim();
-    const item = stockData.find(row => String(row[0]) === idPart);
+    const sel = itemSearch.value;
+    if (!sel) return;
+    const idPart = sel.split(' - ')[0].trim();
+    const item = stockData.find(r => String(r[0])===idPart);
     if (item) itemSearch.value = `${item[0]} - ${item[1]} (Rs.${item[2]})`;
 }
-
-// ================== VOICE POS COMMAND PROCESSOR ==================
-function startVoicePOS() {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        alert('Voice input not supported. Use Chrome.');
-        return;
-    }
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'si-LK';  // mix Sinhala/English
-    recognition.interimResults = false;
-    recognition.start();
-
-    showPosMsg("🎤 Listening... Speak command");
-    recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript.toLowerCase().trim();
-        processVoiceCommand(transcript);
-    };
-    recognition.onerror = (event) => {
-        showPosMsg("Voice error: " + event.error, true);
-    };
-}
-
-function processVoiceCommand(transcript) {
-    // Simple command parser
-    let msg = '';
-    // Add item: "add 5 of AP101" / "add 2 bread" / "add item 101 qty 3"
-    const addRegex = /add\s+(\d+)\s+(?:of\s+)?(.+)/i;
-    const addMatch = transcript.match(addRegex);
-    if (addMatch) {
-        const qty = parseInt(addMatch[1]);
-        const itemIdentifier = addMatch[2].trim();
-        // find item by id or name
-        let foundItem = stockData.find(row => String(row[0]).toLowerCase() === itemIdentifier);
-        if (!foundItem) {
-            foundItem = stockData.find(row => row[1].toLowerCase().includes(itemIdentifier));
-        }
-        if (foundItem) {
-            const id = foundItem[0];
-            const available = parseInt(foundItem[3]) || 0;
-            if (qty > available) {
-                showPosMsg(`Voice: Only ${available} in stock for ${foundItem[1]}`, true);
-                return;
-            }
-            const existing = cart.find(c => c.id === id);
-            if (existing) {
-                if (existing.qty + qty > available) {
-                    showPosMsg(`Voice: Not enough stock`, true);
-                    return;
-                }
-                existing.qty += qty;
-            } else {
-                cart.push({ id: String(id), name: foundItem[1], price: parseFloat(foundItem[2]), qty });
-            }
-            renderCart(); updateTotals();
-            showPosMsg(`✅ Added ${qty} ${foundItem[1]} via voice`);
-        } else {
-            showPosMsg("Voice: Item not found", true);
-        }
-        return;
-    }
-
-    // Confirm bill
-    if (transcript.includes('confirm bill') || transcript.includes('bill confirm') || transcript.includes('බිල confirm')) {
-        confirmSaleBtn.click();
-        return;
-    }
-
-    // Clear cart
-    if (transcript.includes('clear cart') || transcript.includes('cart clear') || transcript.includes('කාට් එක clear')) {
-        cart = [];
-        renderCart();
-        updateTotals();
-        showPosMsg("🗑️ Cart cleared via voice");
-        return;
-    }
-
-    // Courier charge: "courier 500" / "set courier 300"
-    const courierRegex = /courier\s+(\d+)/i;
-    const courierMatch = transcript.match(courierRegex);
-    if (courierMatch) {
-        const charge = parseFloat(courierMatch[1]);
-        courierChargeEl.value = charge;
-        updateTotals();
-        showPosMsg(`🚚 Courier set to Rs.${charge}`);
-        return;
-    }
-
-    showPosMsg("Voice command not recognized. Try: 'add 2 of [id/name]', 'confirm bill', 'clear cart'", true);
-}
-
-// ================== POS MANUAL ==================
 document.getElementById('addToCartBtn').onclick = () => {
     const qty = parseInt(itemQty.value) || 1;
-    if (qty <= 0) { showPosMsg("Invalid quantity", true); return; }
-    const selVal = itemSearch.value;
-    const idMatch = selVal.match(/^([^\s-]+)/);
-    if (!idMatch) { showPosMsg("Select an item", true); return; }
-    const id = idMatch[1];
-    const item = stockData.find(row => String(row[0]) === id);
-    if (!item) { showPosMsg("Item not found", true); return; }
-    const available = parseInt(item[3]) || 0;
-    if (qty > available) { showPosMsg(`"${item[1]}" only ${available} in stock`, true); return; }
-    const existing = cart.find(c => c.id === id);
+    if (qty<=0) return showPosMsg("Invalid qty", true);
+    const sel = itemSearch.value;
+    const match = sel.match(/^([^\s-]+)/);
+    if (!match) return showPosMsg("Select item", true);
+    const id = match[1];
+    const item = stockData.find(r => String(r[0])===id);
+    if (!item) return showPosMsg("Item not found", true);
+    const avail = parseInt(item[3])||0;
+    if (qty > avail) return showPosMsg(`Only ${avail} in stock`, true);
+    const existing = cart.find(c => c.id===id);
     if (existing) {
-        if (existing.qty + qty > available) { showPosMsg(`Not enough stock for "${item[1]}"`, true); return; }
+        if (existing.qty+qty > avail) return showPosMsg(`Not enough stock`, true);
         existing.qty += qty;
-    } else {
-        cart.push({ id: String(item[0]), name: item[1], price: parseFloat(item[2]), qty });
-    }
+    } else cart.push({ id: String(item[0]), name: item[1], price: parseFloat(item[2]), qty });
     renderCart(); updateTotals();
-    itemSearch.value = ""; itemQty.value = 1;
+    itemSearch.value=""; itemQty.value=1;
     showPosMsg("Added to cart");
 };
 
@@ -873,1005 +657,518 @@ function renderCart() {
     cart.forEach((item, idx) => {
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td>${item.id}</td>
-            <td>${escapeHtml(item.name)}</td>
-            <td>Rs. ${item.price.toFixed(2)}</td>
+            <td>${item.id}</td><td>${escapeHtml(item.name)}</td><td>Rs. ${item.price.toFixed(2)}</td>
             <td><input type="number" min="1" max="${getStockQty(item.id)}" value="${item.qty}" onchange="updateCartQty(${idx}, this.value)"></td>
-            <td>Rs. ${(item.price * item.qty).toFixed(2)}</td>
-            <td><button class="btn-red" onclick="removeFromCart(${idx})">Remove</button></td>
-        `;
+            <td>Rs. ${(item.price*item.qty).toFixed(2)}</td>
+            <td><button class="btn-red" onclick="removeFromCart(${idx})">Remove</button></td>`;
         cartBody.appendChild(row);
     });
 }
-function getStockQty(itemId) {
-    const found = stockData.find(row => String(row[0]) === itemId);
-    return found ? parseInt(found[3]) || 0 : 0;
+function getStockQty(itemId) { const f = stockData.find(r => String(r[0])===itemId); return f ? parseInt(f[3])||0 : 0; }
+function updateCartQty(idx, val) {
+    val = Math.max(1, parseInt(val)||1);
+    const item = cart[idx], avail = getStockQty(item.id);
+    if (val > avail) { alert(`Max ${avail}`); val = avail; }
+    cart[idx].qty = val; renderCart(); updateTotals();
 }
-function updateCartQty(index, newQty) {
-    newQty = Math.max(1, parseInt(newQty) || 1);
-    const item = cart[index];
-    const available = getStockQty(item.id);
-    if (newQty > available) { alert(`Maximum available ${available}`); newQty = available; }
-    cart[index].qty = newQty;
-    renderCart(); updateTotals();
-}
-function removeFromCart(index) { cart.splice(index, 1); renderCart(); updateTotals(); }
+function removeFromCart(idx) { cart.splice(idx,1); renderCart(); updateTotals(); }
 function updateTotals() {
-    const subtotal = cart.reduce((sum, item) => sum + item.price * item.qty, 0);
-    const courier = parseFloat(courierChargeEl.value) || 0;
-    subtotalSpan.innerText = `Rs. ${subtotal.toFixed(2)}`;
-    grandTotalSpan.innerText = `Rs. ${(subtotal + courier).toFixed(2)}`;
+    const sub = cart.reduce((sum,i)=>sum+i.price*i.qty, 0);
+    const courier = parseFloat(courierChargeEl.value)||0;
+    subtotalSpan.innerText = `Rs. ${sub.toFixed(2)}`;
+    grandTotalSpan.innerText = `Rs. ${(sub+courier).toFixed(2)}`;
 }
 
-// ================== SALE WITH CUSTOM ID ==================
+// ================== SALE ==================
 async function getNextSaleId() {
     const counterRef = db.collection('metadata').doc('saleCounter');
-    const newNumber = await db.runTransaction(async (transaction) => {
-        const docSnap = await transaction.get(counterRef);
-        let lastNumber = docSnap.exists ? (docSnap.data().lastNumber || 1309) : 1309;
-        const nextNumber = lastNumber + 1;
-        transaction.set(counterRef, { lastNumber: nextNumber }, { merge: true });
-        return nextNumber;
+    const num = await db.runTransaction(async t => {
+        const snap = await t.get(counterRef);
+        const last = snap.exists ? (snap.data().lastNumber||1309) : 1309;
+        const next = last+1;
+        t.set(counterRef, { lastNumber: next }, { merge: true });
+        return next;
     });
-    return `JJ${newNumber}`;
+    return `JJ${num}`;
 }
 
 confirmSaleBtn.onclick = async function() {
-    if (!custName.value.trim()) { showPosMsg("Customer name required", true); return; }
-    if (cart.length === 0) { showPosMsg("Cart is empty", true); return; }
-    const courier = parseFloat(courierChargeEl.value) || 0;
-    for (let item of cart) {
-        const available = getStockQty(item.id);
-        if (item.qty > available) { showPosMsg(`"${item.name}" stock insufficient. Available: ${available}`, true); return; }
-    }
-    confirmSaleBtn.disabled = true;
-    confirmSaleBtn.textContent = "⏳ Processing...";
-
+    if (!custName.value.trim()) return showPosMsg("Customer name required", true);
+    if (!cart.length) return showPosMsg("Cart empty", true);
+    const courier = parseFloat(courierChargeEl.value)||0;
+    for (let i of cart) if (i.qty > getStockQty(i.id)) return showPosMsg(`"${i.name}" insufficient stock`, true);
+    confirmSaleBtn.disabled = true; confirmSaleBtn.textContent = "⏳ Processing...";
     try {
-        const city = document.getElementById('custCity').value.trim();
+        const city = custCity.value.trim();
         const saleId = await getNextSaleId();
-        const items = cart.map(c => ({
-            id: c.id,
-            name: c.name,
-            price: c.price,
-            qty: c.qty,
-            total: parseFloat((c.price * c.qty).toFixed(2))
-        }));
-        const subtotal = parseFloat(items.reduce((s, it) => s + it.total, 0).toFixed(2));
-        const grandTotal = subtotal + courier;
-
+        const items = cart.map(c => ({ id: c.id, name: c.name, price: c.price, qty: c.qty, total: parseFloat((c.price*c.qty).toFixed(2)) }));
+        const subtotal = parseFloat(items.reduce((s,it)=>s+it.total,0).toFixed(2));
         const saleData = {
-            customerName: custName.value.trim(),
-            address: custAddress.value.trim(),
-            city: city,
-            phone: custPhone.value.trim(),
-            items: items,
-            subtotal: subtotal,
-            courier: courier,
-            grandTotal: grandTotal,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            comment: '',
-            paymentStatus: 'unpaid'
+            customerName: custName.value.trim(), address: custAddress.value.trim(), city, phone: custPhone.value.trim(),
+            items, subtotal, courier, grandTotal: subtotal+courier, timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            comment:'', paymentStatus:'unpaid'
         };
-
         const batch = db.batch();
-        for (const cartItem of cart) {
-            const stockDocRef = db.collection('stock').doc(cartItem.id);
-            const stockSnap = await stockDocRef.get();
-            if (!stockSnap.exists) throw new Error(`Stock ${cartItem.id} not found`);
-            const currentQty = stockSnap.data().qty || 0;
-            const newQty = currentQty - cartItem.qty;
-            batch.update(stockDocRef, { qty: newQty });
+        for (const ci of cart) {
+            const stockRef = db.collection('stock').doc(ci.id);
+            const snap = await stockRef.get();
+            if (!snap.exists) throw new Error(`Stock ${ci.id} missing`);
+            batch.update(stockRef, { qty: (snap.data().qty||0) - ci.qty });
         }
         batch.set(db.collection('sales').doc(saleId), saleData);
         await batch.commit();
-
-        showPosMsg(`Sale successful! Sale ID: ${saleId}`);
-        custName.value = custAddress.value = custCity.value = custPhone.value = "";
-        cart = []; renderCart(); courierChargeEl.value = defaultCourier; updateTotals();
-        await fetchStock();
-        await searchSales();
-    } catch (err) {
-        showPosMsg("Sale failed: " + err.message, true);
-    } finally {
-        confirmSaleBtn.disabled = false;
-        confirmSaleBtn.textContent = "✅ Confirm Bill";
-    }
+        showPosMsg(`Sale ${saleId} successful!`);
+        custName.value=custAddress.value=custCity.value=custPhone.value=""; cart=[]; renderCart(); courierChargeEl.value=defaultCourier; updateTotals();
+        await fetchStock(); await searchSales();
+    } catch(e) { showPosMsg("Sale failed: "+e.message, true); }
+    finally { confirmSaleBtn.disabled = false; confirmSaleBtn.textContent = "✅ Confirm Bill"; }
 };
 
 // ================== SALES HISTORY ==================
-function handlePaymentFilter() {
-    paymentFilter = paymentFilterEl.value;
-    filterAndRenderSales();
-}
-
 async function searchSales() {
     const term = searchSaleInput.value.trim().toLowerCase();
     salesHistoryBody.innerHTML = "<tr><td colspan='7'>Loading...</td></tr>";
     try {
-        const dateFromVal = document.getElementById('dateFrom').value;
-        const dateToVal = document.getElementById('dateTo').value;
-        let fromDate = null, toDate = null;
-        if (dateFromVal) {
-            fromDate = new Date(dateFromVal);
-            fromDate.setHours(0, 0, 0, 0);
-        }
-        if (dateToVal) {
-            toDate = new Date(dateToVal);
-            toDate.setHours(23, 59, 59, 999);
-        }
-
-        const collectionName = isDeletedView ? 'deleted_sales' : 'sales';
-        let query = db.collection(collectionName).orderBy('timestamp', 'desc');
-        const snapshot = await query.get();
+        const from = document.getElementById('dateFrom').value, to = document.getElementById('dateTo').value;
+        let fromDate=null, toDate=null;
+        if (from) { fromDate = new Date(from); fromDate.setHours(0,0,0,0); }
+        if (to) { toDate = new Date(to); toDate.setHours(23,59,59,999); }
+        const coll = isDeletedView ? 'deleted_sales' : 'sales';
+        const snap = await db.collection(coll).orderBy('timestamp','desc').get();
         salesHistoryData = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
+        snap.forEach(doc => {
+            const d = doc.data();
             const sale = {
-                SaleID: doc.id,
-                CustomerName: data.customerName,
-                Address: data.address,
-                City: data.city || '',
-                Phone: data.phone,
-                Timestamp: data.timestamp ? data.timestamp.toDate() : new Date(),
-                GrandTotal: data.grandTotal,
-                Comment: data.comment || '',
-                Items: data.items,
-                PaymentStatus: data.paymentStatus || 'unpaid'
+                SaleID: doc.id, CustomerName: d.customerName, Address: d.address, City: d.city||'', Phone: d.phone,
+                Timestamp: d.timestamp ? d.timestamp.toDate() : new Date(), GrandTotal: d.grandTotal,
+                Comment: d.comment||'', Items: d.items, PaymentStatus: d.paymentStatus||'unpaid'
             };
-
             let include = true;
-            if (term) {
-                const match = sale.SaleID.toLowerCase().includes(term) || 
-                              sale.CustomerName.toLowerCase().includes(term);
-                if (!match) include = false;
-            }
-            if (include && fromDate && sale.Timestamp < fromDate) include = false;
-            if (include && toDate && sale.Timestamp > toDate) include = false;
+            if (term && !(sale.SaleID.toLowerCase().includes(term) || sale.CustomerName.toLowerCase().includes(term))) include=false;
+            if (include && fromDate && sale.Timestamp < fromDate) include=false;
+            if (include && toDate && sale.Timestamp > toDate) include=false;
             if (include) salesHistoryData.push(sale);
         });
-        salesCurrentPage = 1;
-        filterAndRenderSales();
-    } catch (err) {
-        salesHistoryBody.innerHTML = `<tr><td colspan='7'>Error: ${err.message}</td></tr>`;
-        console.error(err);
-    }
+        salesCurrentPage = 1; filterAndRenderSales();
+    } catch(e) { salesHistoryBody.innerHTML = `<tr><td colspan='7'>Error: ${e.message}</td></tr>`; }
 }
-
 document.getElementById('dateFrom').addEventListener('change', searchSales);
 document.getElementById('dateTo').addEventListener('change', searchSales);
 document.getElementById('searchSaleBtn').onclick = searchSales;
 
+function handlePaymentFilter() { paymentFilter = paymentFilterEl.value; filterAndRenderSales(); }
 function filterAndRenderSales() {
-    let filtered = salesHistoryData;
-    if (paymentFilter !== 'all') {
-        filtered = salesHistoryData.filter(s => s.PaymentStatus === paymentFilter);
-    }
-    renderSalesPage(filtered);
+    let data = salesHistoryData;
+    if (paymentFilter !== 'all') data = data.filter(s => s.PaymentStatus === paymentFilter);
+    renderSalesPage(data);
 }
-
 function toggleDeletedView() {
     isDeletedView = !isDeletedView;
     const btn = document.getElementById('showDeletedBtn');
-    if (isDeletedView) {
-        btn.textContent = '📋 Active Bills';
-        btn.classList.remove('btn-red');
-        btn.classList.add('btn-gray');
-    } else {
-        btn.textContent = '🗑️ Deleted Bills';
-        btn.classList.remove('btn-gray');
-        btn.classList.add('btn-red');
-    }
-    selectedSales.clear();
-    document.getElementById('selectAllCheckbox').checked = false;
+    btn.textContent = isDeletedView ? '📋 Active Bills' : '🗑️ Deleted Bills';
+    btn.classList.toggle('btn-red', !isDeletedView); btn.classList.toggle('btn-gray', isDeletedView);
+    selectedSales.clear(); document.getElementById('selectAllCheckbox').checked = false;
     searchSales();
 }
 
-function renderSalesPagination(filteredData) {
-    salesPaginationDiv.innerHTML = "";
-    if (!filteredData.length) return;
-    const totalPages = Math.ceil(filteredData.length / SALES_PER_PAGE);
-    if (totalPages <= 1) return;
-    const prevBtn = document.createElement('button');
-    prevBtn.textContent = 'Prev'; prevBtn.disabled = salesCurrentPage === 1;
-    prevBtn.onclick = () => { if (salesCurrentPage > 1) { salesCurrentPage--; renderSalesPage(); } };
-    salesPaginationDiv.appendChild(prevBtn);
-    for (let i = 1; i <= totalPages; i++) {
-        const btn = document.createElement('button');
-        btn.textContent = i;
-        if (i === salesCurrentPage) btn.classList.add('active-page');
-        btn.onclick = () => { salesCurrentPage = i; renderSalesPage(); };
-        salesPaginationDiv.appendChild(btn);
-    }
-    const nextBtn = document.createElement('button');
-    nextBtn.textContent = 'Next'; nextBtn.disabled = salesCurrentPage === totalPages;
-    nextBtn.onclick = () => { if (salesCurrentPage < totalPages) { salesCurrentPage++; renderSalesPage(); } };
-    salesPaginationDiv.appendChild(nextBtn);
-}
-
 let currentFilteredSalesData = [];
-
-function renderSalesPage(overrideData = null) {
-    if (overrideData) {
-        currentFilteredSalesData = overrideData;
-    }
-    const data = currentFilteredSalesData;
+function renderSalesPage(data = null) {
+    if (data) currentFilteredSalesData = data;
+    const list = currentFilteredSalesData;
     salesHistoryBody.innerHTML = "";
-    const start = (salesCurrentPage - 1) * SALES_PER_PAGE;
-    const pageData = data.slice(start, start + SALES_PER_PAGE);
-    if (!pageData.length) {
-        salesHistoryBody.innerHTML = "<tr><td colspan='7'>No results</td></tr>";
-        document.getElementById('selectAllCheckbox').checked = false;
-        return;
-    }
-    pageData.forEach(sale => {
-        const row = document.createElement('tr');
+    const start = (salesCurrentPage-1)*SALES_PER_PAGE;
+    const page = list.slice(start, start+SALES_PER_PAGE);
+    if (!page.length) { salesHistoryBody.innerHTML = "<tr><td colspan='7'>No results</td></tr>"; return; }
+    page.forEach(sale => {
         const isChecked = selectedSales.has(sale.SaleID);
-        const paymentText = sale.PaymentStatus === 'paid' ? '✅ Paid' : '❌ Unpaid';
-        const paymentClass = sale.PaymentStatus === 'paid' ? 'payment-paid' : 'payment-unpaid';
-        const paymentBtnLabel = sale.PaymentStatus === 'paid' ? 'Mark Unpaid' : 'Mark Paid';
+        const row = document.createElement('tr');
         const actions = isDeletedView ?
             `<button class="btn-green" onclick="event.stopPropagation(); restoreSale('${sale.SaleID}')">↩️ Restore</button>
              <button class="btn-red" onclick="event.stopPropagation(); permanentDeleteSale('${sale.SaleID}')">🗑️ Permanent</button>` :
-            `<button class="btn-gray" onclick="event.stopPropagation(); openCommentModal('${sale.SaleID}', '${escapeHtml(sale.Comment || '')}')">💬</button>
-             <button class="btn-blue" onclick="event.stopPropagation(); togglePayment('${sale.SaleID}', '${sale.PaymentStatus}')">💰 ${paymentBtnLabel}</button>
+            `<button class="btn-gray" onclick="event.stopPropagation(); openCommentModal('${sale.SaleID}','${escapeHtml(sale.Comment||'')}')">💬</button>
+             <button class="btn-blue" onclick="event.stopPropagation(); togglePayment('${sale.SaleID}','${sale.PaymentStatus}')">💰 ${sale.PaymentStatus==='paid'?'Mark Unpaid':'Mark Paid'}</button>
              <button class="btn-orange" onclick="event.stopPropagation(); openEditModal('${sale.SaleID}')">✏️ Edit</button>
              <button class="btn-red" onclick="event.stopPropagation(); deleteSale('${sale.SaleID}')">🗑️</button>`;
         row.innerHTML = `
-            <td><input type="checkbox" class="saleCheckbox" data-saleid="${sale.SaleID}" ${isChecked ? 'checked' : ''} onchange="handleCheckboxToggle(event)"></td>
-            <td>${sale.SaleID}</td>
-            <td>${escapeHtml(sale.CustomerName)}</td>
-            <td>${sale.Timestamp.toLocaleString('si-LK')}</td>
+            <td><input type="checkbox" class="saleCheckbox" data-saleid="${sale.SaleID}" ${isChecked?'checked':''} onchange="handleCheckboxToggle(event)"></td>
+            <td>${sale.SaleID}</td><td>${escapeHtml(sale.CustomerName)}</td><td>${sale.Timestamp.toLocaleString('si-LK')}</td>
             <td>Rs. ${parseFloat(sale.GrandTotal).toFixed(2)}</td>
-            <td><span class="${paymentClass}">${paymentText}</span></td>
-            <td class="action-icons">${actions}</td>
-        `;
-        row.onclick = (e) => {
-            if (e.target.tagName !== 'INPUT' && !e.target.closest('button')) viewBill(sale.SaleID);
-        };
+            <td class="${sale.PaymentStatus==='paid'?'payment-paid':'payment-unpaid'}">${sale.PaymentStatus==='paid'?'✅ Paid':'❌ Unpaid'}</td>
+            <td class="action-icons">${actions}</td>`;
+        row.onclick = (e) => { if (e.target.tagName!=='INPUT' && !e.target.closest('button')) viewBill(sale.SaleID); };
         salesHistoryBody.appendChild(row);
     });
-    const allVisible = document.querySelectorAll('.saleCheckbox');
-    document.getElementById('selectAllCheckbox').checked = allVisible.length > 0 && Array.from(allVisible).every(cb => cb.checked);
-    renderSalesPagination(data);
+    document.getElementById('selectAllCheckbox').checked = document.querySelectorAll('.saleCheckbox').length>0 && Array.from(document.querySelectorAll('.saleCheckbox')).every(cb=>cb.checked);
+    renderSalesPagination(list);
 }
-
-async function togglePayment(saleId, currentStatus) {
-    const newStatus = currentStatus === 'paid' ? 'unpaid' : 'paid';
-    if (!confirm(`Mark this bill as "${newStatus === 'paid' ? 'Paid' : 'Unpaid'}"?`)) return;
-    try {
-        await db.collection('sales').doc(saleId).update({ paymentStatus: newStatus });
-        const sale = salesHistoryData.find(s => s.SaleID === saleId);
-        if (sale) sale.PaymentStatus = newStatus;
-        filterAndRenderSales();
-    } catch (err) {
-        alert('Error: ' + err.message);
+function renderSalesPagination(data) {
+    salesPaginationDiv.innerHTML = "";
+    const pages = Math.ceil(data.length/SALES_PER_PAGE);
+    if (pages<=1) return;
+    const prev = document.createElement('button'); prev.textContent='Prev'; prev.disabled=salesCurrentPage===1;
+    prev.onclick = () => { if (salesCurrentPage>1) { salesCurrentPage--; renderSalesPage(); } };
+    salesPaginationDiv.appendChild(prev);
+    for (let i=1; i<=pages; i++) {
+        const btn = document.createElement('button'); btn.textContent=i;
+        if (i===salesCurrentPage) btn.classList.add('active-page');
+        btn.onclick = () => { salesCurrentPage=i; renderSalesPage(); };
+        salesPaginationDiv.appendChild(btn);
     }
+    const next = document.createElement('button'); next.textContent='Next'; next.disabled=salesCurrentPage===pages;
+    next.onclick = () => { if (salesCurrentPage<pages) { salesCurrentPage++; renderSalesPage(); } };
+    salesPaginationDiv.appendChild(next);
 }
 
-function handleCheckboxToggle(event) {
-    const saleId = event.target.dataset.saleid;
-    event.target.checked ? selectedSales.add(saleId) : selectedSales.delete(saleId);
-    document.getElementById('selectAllCheckbox').checked = 
-        document.querySelectorAll('.saleCheckbox').length > 0 && 
-        Array.from(document.querySelectorAll('.saleCheckbox')).every(cb => cb.checked);
+function handleCheckboxToggle(e) {
+    const saleId = e.target.dataset.saleid;
+    e.target.checked ? selectedSales.add(saleId) : selectedSales.delete(saleId);
+    document.getElementById('selectAllCheckbox').checked = document.querySelectorAll('.saleCheckbox').length>0 && Array.from(document.querySelectorAll('.saleCheckbox')).every(cb=>cb.checked);
 }
 function toggleAllCheckboxes(master) {
-    document.querySelectorAll('.saleCheckbox').forEach(cb => {
-        cb.checked = master.checked;
-        master.checked ? selectedSales.add(cb.dataset.saleid) : selectedSales.delete(cb.dataset.saleid);
-    });
+    document.querySelectorAll('.saleCheckbox').forEach(cb => { cb.checked = master.checked; master.checked ? selectedSales.add(cb.dataset.saleid) : selectedSales.delete(cb.dataset.saleid); });
 }
-function clearSelection() {
-    selectedSales.clear();
-    document.querySelectorAll('.saleCheckbox').forEach(cb => cb.checked = false);
-    document.getElementById('selectAllCheckbox').checked = false;
-}
+function clearSelection() { selectedSales.clear(); document.querySelectorAll('.saleCheckbox').forEach(cb=>cb.checked=false); document.getElementById('selectAllCheckbox').checked=false; }
 
-// Soft delete
 async function deleteSale(saleId) {
-    if (!confirm(`Delete bill "${saleId}" and restore stock?`)) return;
-    try {
-        const saleDoc = await db.collection('sales').doc(saleId).get();
-        if (!saleDoc.exists) { alert("Sale not found"); return; }
-        const saleData = saleDoc.data();
-        const items = saleData.items || [];
-        const batch = db.batch();
-        for (const item of items) {
-            const stockRef = db.collection('stock').doc(item.id);
-            const stockSnap = await stockRef.get();
-            if (stockSnap.exists) {
-                const newQty = (stockSnap.data().qty || 0) + item.qty;
-                batch.update(stockRef, { qty: newQty });
-            }
-        }
-        batch.set(db.collection('deleted_sales').doc(saleId), saleData);
-        batch.delete(db.collection('sales').doc(saleId));
-        await batch.commit();
-        alert('Sale deleted and stock restored');
-        await fetchStock();
-        searchSales();
-    } catch (err) { alert("Error: " + err.message); }
+    if (!confirm(`Delete ${saleId} and restore stock?`)) return;
+    const snap = await db.collection('sales').doc(saleId).get();
+    if (!snap.exists) return alert('Not found');
+    const data = snap.data(), items = data.items||[];
+    const batch = db.batch();
+    for (const it of items) {
+        const st = await db.collection('stock').doc(it.id).get();
+        if (st.exists) batch.update(db.collection('stock').doc(it.id), { qty: (st.data().qty||0) + it.qty });
+    }
+    batch.set(db.collection('deleted_sales').doc(saleId), data);
+    batch.delete(db.collection('sales').doc(saleId));
+    await batch.commit();
+    alert('Deleted'); await fetchStock(); searchSales();
 }
 
-// Restore
 async function restoreSale(saleId) {
-    if (!confirm(`Restore "${saleId}" and deduct stock?`)) return;
-    try {
-        const deletedDoc = await db.collection('deleted_sales').doc(saleId).get();
-        if (!deletedDoc.exists) { alert("Deleted sale not found"); return; }
-        const saleData = deletedDoc.data();
-        const items = saleData.items || [];
-        for (const item of items) {
-            const stockSnap = await db.collection('stock').doc(item.id).get();
-            if (!stockSnap.exists || (stockSnap.data().qty || 0) < item.qty) {
-                alert(`Not enough stock for "${item.name}". Cannot restore.`);
-                return;
-            }
-        }
-        const batch = db.batch();
-        for (const item of items) {
-            const stockRef = db.collection('stock').doc(item.id);
-            batch.update(stockRef, { qty: firebase.firestore.FieldValue.increment(-item.qty) });
-        }
-        batch.set(db.collection('sales').doc(saleId), saleData);
-        batch.delete(db.collection('deleted_sales').doc(saleId));
-        await batch.commit();
-        alert('Sale restored');
-        await fetchStock();
-        searchSales();
-    } catch (err) { alert("Error: " + err.message); }
+    if (!confirm(`Restore ${saleId} and deduct stock?`)) return;
+    const snap = await db.collection('deleted_sales').doc(saleId).get();
+    if (!snap.exists) return alert('Not found');
+    const data = snap.data(), items = data.items||[];
+    for (const it of items) {
+        const st = await db.collection('stock').doc(it.id).get();
+        if (!st.exists || (st.data().qty||0) < it.qty) return alert(`Not enough stock for ${it.name}`);
+    }
+    const batch = db.batch();
+    for (const it of items) batch.update(db.collection('stock').doc(it.id), { qty: firebase.firestore.FieldValue.increment(-it.qty) });
+    batch.set(db.collection('sales').doc(saleId), data);
+    batch.delete(db.collection('deleted_sales').doc(saleId));
+    await batch.commit();
+    alert('Restored'); await fetchStock(); searchSales();
 }
-
-// Permanent delete
 async function permanentDeleteSale(saleId) {
-    if (!confirm(`Permanently delete "${saleId}"?`)) return;
-    try {
-        await db.collection('deleted_sales').doc(saleId).delete();
-        alert('Permanently deleted');
-        searchSales();
-    } catch (err) { alert("Error: " + err.message); }
+    if (!confirm(`Permanently delete ${saleId}?`)) return;
+    await db.collection('deleted_sales').doc(saleId).delete();
+    alert('Deleted permanently'); searchSales();
 }
 
-// Comment modal
-function openCommentModal(saleId, currentComment) {
+async function togglePayment(saleId, current) {
+    const newStatus = current==='paid'?'unpaid':'paid';
+    if (!confirm(`Mark as ${newStatus}?`)) return;
+    await db.collection('sales').doc(saleId).update({ paymentStatus: newStatus });
+    const sale = salesHistoryData.find(s=>s.SaleID===saleId);
+    if (sale) sale.PaymentStatus = newStatus;
+    filterAndRenderSales();
+}
+
+function openCommentModal(saleId, comment) {
     document.getElementById('commentSaleId').value = saleId;
-    document.getElementById('commentText').value = currentComment || '';
+    document.getElementById('commentText').value = comment;
     document.getElementById('commentModal').style.display = 'flex';
 }
 function closeCommentModal() { document.getElementById('commentModal').style.display = 'none'; }
 async function saveComment() {
     const saleId = document.getElementById('commentSaleId').value;
     const comment = document.getElementById('commentText').value;
-    try {
-        await db.collection('sales').doc(saleId).update({ comment: comment });
-        closeCommentModal();
-        searchSales();
-    } catch (err) { alert("Error: " + err.message); }
+    await db.collection('sales').doc(saleId).update({ comment });
+    closeCommentModal(); searchSales();
 }
 
-// ================== BILL VIEW & PRINT HELPERS ==================
+// ================== BILL VIEW & PRINT ==================
 async function getSaleData(saleId) {
     if (billCache[saleId]) return billCache[saleId];
-    let docSnap;
-    if (isDeletedView) {
-        docSnap = await db.collection('deleted_sales').doc(saleId).get();
-    } else {
-        docSnap = await db.collection('sales').doc(saleId).get();
-    }
-    if (!docSnap.exists) throw new Error('Sale not found');
-    const data = docSnap.data();
-    const result = {
-        success: true,
-        customer: {
-            name: data.customerName,
-            address: data.address,
-            city: data.city || '',
-            phone: data.phone,
-            subtotal: data.subtotal,
-            courier: data.courier,
-            grandTotal: data.grandTotal
-        },
-        items: data.items.map(it => ({
-            id: it.id,
-            name: it.name,
-            price: it.price,
-            qty: it.qty,
-            total: it.total
-        }))
-    };
+    const coll = isDeletedView ? 'deleted_sales' : 'sales';
+    const snap = await db.collection(coll).doc(saleId).get();
+    if (!snap.exists) throw new Error('Not found');
+    const d = snap.data();
+    const result = { success: true, customer: { name: d.customerName, address: d.address, city: d.city||'', phone: d.phone, subtotal: d.subtotal, courier: d.courier, grandTotal: d.grandTotal },
+        items: d.items.map(it => ({ id: it.id, name: it.name, price: it.price, qty: it.qty, total: it.total })) };
     billCache[saleId] = result;
     return result;
 }
 
 async function viewBill(saleId) {
     try {
-        const json = await getSaleData(saleId);
-        const { customer, items } = json;
+        const { customer, items } = await getSaleData(saleId);
         let html = `<img class="logo-print" src="${LOGO_URL}" alt="Logo">`;
-        html += `<p><strong>Customer:</strong> ${escapeHtml(customer.name || '')}<br>
-                    <strong>Address:</strong> ${escapeHtml(customer.address || '')}<br>
-                    <strong>City:</strong> ${escapeHtml(customer.city || '')}<br>
-                    <strong>Phone:</strong> ${escapeHtml(customer.phone || '')}</p>
-                    <table><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>`;
+        html += `<p><strong>Customer:</strong> ${escapeHtml(customer.name)}<br><strong>Address:</strong> ${escapeHtml(customer.address)}<br><strong>City:</strong> ${escapeHtml(customer.city)}<br><strong>Phone:</strong> ${escapeHtml(customer.phone)}</p>
+                <table><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>`;
         items.forEach(it => html += `<tr><td>${escapeHtml(it.name)}</td><td>Rs. ${it.price}</td><td>${it.qty}</td><td>Rs. ${it.total}</td></tr>`);
-        html += `</tbody></table>
-                 <p><strong>Subtotal:</strong> Rs. ${customer.subtotal}<br>
-                 <strong>Courier:</strong> Rs. ${customer.courier}<br>
-                 <strong>Grand Total:</strong> Rs. ${customer.grandTotal}</p>
-                 <button class="no-print" onclick="window.print()" style="margin-right:10px;">🖨️ Print</button>`;
+        html += `</tbody></table><p><strong>Subtotal:</strong> Rs. ${customer.subtotal}<br><strong>Courier:</strong> Rs. ${customer.courier}<br><strong>Grand Total:</strong> Rs. ${customer.grandTotal}</p>
+                <button class="no-print" onclick="window.print()">🖨️ Print</button>`;
         document.getElementById('billContent').innerHTML = html;
         document.getElementById('billModal').style.display = 'flex';
-    } catch (err) { alert("Error: " + err.message); }
+    } catch(e) { alert(e.message); }
 }
+function closeModal() { document.getElementById('billModal').style.display = 'none'; }
 
-// ========== PRINT SELECTED BILLS (9 per page) ==========
 async function printSelectedBills() {
-    if (selectedSales.size === 0) { alert("Please select at least one bill to print."); return; }
-    const saleIds = Array.from(selectedSales);
-    const billsHtml = [];
-    for (const id of saleIds) {
-        let data;
-        try {
-            data = await getSaleData(id);
-        } catch(e) {
-            console.warn(`Could not fetch bill ${id}:`, e);
-            continue;
-        }
-        if (!data || !data.success) continue;
-        const { customer, items } = data;
-        let itemsHtml = `<table class="bill-items-table"><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>`;
-        items.forEach(it => { itemsHtml += `<tr><td>${escapeHtml(it.name)}</td><td>Rs.${it.price.toFixed(2)}</td><td>${it.qty}</td><td>Rs.${it.total.toFixed(2)}</td></tr>`; });
-        itemsHtml += `</tbody></table>`;
-        billsHtml.push(`
-            <div class="bill-card">
-                <img class="logo-print-img" src="${LOGO_URL}" alt="Logo">
-                <div class="bill-header">🧾 BILL: ${id}</div>
-                <div class="bill-customer">
-                    <strong>${escapeHtml(customer.name)}</strong><br>
-                    ${escapeHtml(customer.address)}, ${escapeHtml(customer.city)}<br>
-                    📞 ${escapeHtml(customer.phone)}
-                </div>
-                ${itemsHtml}
-                <div class="bill-subtotal">Subtotal: Rs.${customer.subtotal.toFixed(2)}</div>
-                <div class="bill-courier">Courier: Rs.${customer.courier.toFixed(2)}</div>
-                <div class="bill-total"><strong>Total: Rs.${customer.grandTotal.toFixed(2)}</strong></div>
-            </div>
-        `);
+    if (!selectedSales.size) return alert('Select bills');
+    const bills = [];
+    for (const id of selectedSales) {
+        try { const d = await getSaleData(id); if (d) bills.push({ id, ...d }); } catch(e){}
     }
-    
     let pagesHtml = '';
-    for (let i = 0; i < billsHtml.length; i += 9) {
-        const pageBills = billsHtml.slice(i, i + 9).join('');
+    for (let i=0; i<bills.length; i+=9) {
+        const pageBills = bills.slice(i,i+9).map(b => {
+            const itemsHtml = `<table class="bill-items-table"><thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr></thead><tbody>${b.items.map(it => `<tr><td>${escapeHtml(it.name)}</td><td>Rs.${it.price.toFixed(2)}</td><td>${it.qty}</td><td>Rs.${it.total.toFixed(2)}</td></tr>`).join('')}</tbody></table>`;
+            return `<div class="bill-card"><img class="logo-print-img" src="${LOGO_URL}"><div class="bill-header">${b.id}</div><div class="bill-customer"><strong>${escapeHtml(b.customer.name)}</strong><br>${escapeHtml(b.customer.address)}, ${escapeHtml(b.customer.city)}<br>📞 ${escapeHtml(b.customer.phone)}</div>${itemsHtml}<div class="bill-subtotal">Subtotal: Rs.${b.customer.subtotal.toFixed(2)}</div><div class="bill-courier">Courier: Rs.${b.customer.courier.toFixed(2)}</div><div class="bill-total"><strong>Total: Rs.${b.customer.grandTotal.toFixed(2)}</strong></div></div>`;
+        }).join('');
         pagesHtml += `<div class="bill-page">${pageBills}</div>`;
     }
-    
-    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Print Bills</title><style>
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Arial, sans-serif; }
-        body { background: white; padding: 8mm; }
-        .bill-page { page-break-after: always; }
-        .bill-page:last-child { page-break-after: auto; }
-        .bill-page {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 6mm;
-            align-items: start;
-        }
-        .bill-card {
-            border: 1px solid #aaa;
-            padding: 4mm;
-            border-radius: 4px;
-            background: white;
-            break-inside: avoid;
-            font-size: 9pt;
-        }
-        .logo-print-img { max-width: 60px; display: block; margin: 0 auto 3mm; }
-        .bill-header { font-size: 11pt; font-weight: bold; text-align: center; margin-bottom: 3mm; }
-        .bill-customer { margin-bottom: 3mm; padding-bottom: 2mm; border-bottom: 1px dashed #ccc; font-size: 8.5pt; }
-        .bill-items-table { width: 100%; border-collapse: collapse; margin: 2mm 0; font-size: 8pt; }
-        .bill-items-table th, .bill-items-table td { border: 1px solid #999; padding: 2px; text-align: left; }
-        .bill-subtotal, .bill-courier { text-align: right; font-size: 8.5pt; margin-top: 1mm; }
-        .bill-total { text-align: right; font-weight: bold; margin-top: 2mm; font-size: 10pt; }
-        @media print {
-            body { padding: 0; margin: 0; }
-            .bill-page { page-break-after: always; }
-        }
-    </style></head><body>${pagesHtml}</body></html>`;
-    
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(fullHtml);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-    setTimeout(() => { printWindow.close(); }, 500);
+    const w = window.open('','_blank');
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:'Segoe UI',Arial;} body{padding:8mm;}
+        .bill-page{page-break-after:always;display:grid;grid-template-columns:repeat(3,1fr);gap:6mm;}
+        .bill-card{border:1px solid #aaa;padding:4mm;border-radius:4px;background:white;break-inside:avoid;font-size:9pt;}
+        .logo-print-img{max-width:60px;display:block;margin:0 auto 3mm;}
+        .bill-header{font-size:11pt;font-weight:bold;text-align:center;margin-bottom:3mm;}
+        .bill-customer{margin-bottom:3mm;padding-bottom:2mm;border-bottom:1px dashed #ccc;font-size:8.5pt;}
+        .bill-items-table{width:100%;border-collapse:collapse;margin:2mm 0;font-size:8pt;}
+        .bill-items-table th,.bill-items-table td{border:1px solid #999;padding:2px;}
+        .bill-subtotal,.bill-courier{text-align:right;font-size:8.5pt;margin-top:1mm;}
+        .bill-total{text-align:right;font-weight:bold;margin-top:2mm;font-size:10pt;}
+        @media print{body{padding:0;margin:0;}.bill-page{page-break-after:always;}}
+    </style></head><body>${pagesHtml}</body></html>`);
+    w.document.close(); w.focus(); w.print(); setTimeout(()=>w.close(),500);
 }
 
 async function downloadSelectedBills() {
-    if (selectedSales.size === 0) { 
-        alert("Please select at least one bill."); 
-        return; 
-    }
-    const saleIds = Array.from(selectedSales);
-    const csvHeader = ["SaleID", "Date", "CustomerName", "Address", "City", "Phone", "GrandTotal", "PaymentStatus", "Comment"];
-    const csvRows = [csvHeader];
-
-    for (const id of saleIds) {
-        const sale = salesHistoryData.find(s => s.SaleID === id);
-        if (!sale) {
-            try {
-                const docSnap = await db.collection('sales').doc(id).get();
-                if (!docSnap.exists) continue;
-                const data = docSnap.data();
-                const date = data.timestamp ? data.timestamp.toDate().toLocaleDateString('si-LK') : '';
-                csvRows.push([
-                    id, date,
-                    data.customerName || '', data.address || '', data.city || '', data.phone || '',
-                    data.grandTotal ? parseFloat(data.grandTotal).toFixed(2) : '0.00',
-                    data.paymentStatus || 'unpaid',
-                    data.comment || ''
-                ]);
-            } catch(err) { continue; }
-        } else {
-            const date = sale.Timestamp ? sale.Timestamp.toLocaleDateString('si-LK') : '';
-            csvRows.push([
-                id, date,
-                sale.CustomerName || '', sale.Address || '', sale.City || '', sale.Phone || '',
-                sale.GrandTotal ? parseFloat(sale.GrandTotal).toFixed(2) : '0.00',
-                sale.PaymentStatus || 'unpaid',
-                sale.Comment || ''
-            ]);
+    if (!selectedSales.size) return alert('Select bills');
+    const csv = [["SaleID","Date","CustomerName","Address","City","Phone","GrandTotal","PaymentStatus","Comment"]];
+    for (const id of selectedSales) {
+        const s = salesHistoryData.find(s=>s.SaleID===id);
+        if (s) csv.push([id, s.Timestamp.toLocaleDateString('si-LK'), s.CustomerName, s.Address, s.City, s.Phone, parseFloat(s.GrandTotal).toFixed(2), s.PaymentStatus, s.Comment]);
+        else {
+            const snap = await db.collection('sales').doc(id).get();
+            if (snap.exists) {
+                const d = snap.data();
+                csv.push([id, d.timestamp?.toDate().toLocaleDateString('si-LK')||'', d.customerName||'', d.address||'', d.city||'', d.phone||'', (d.grandTotal||0).toFixed(2), d.paymentStatus||'', d.comment||'']);
+            }
         }
     }
-
-    const csvContent = "\uFEFF" + csvRows.map(row => 
-        row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
-    ).join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `selected_bills_${new Date().toISOString().slice(0,10)}.csv`;
-    document.body.appendChild(a); 
-    a.click(); 
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const blob = new Blob(["\uFEFF"+csv.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n')], {type:'text/csv;charset=utf-8'});
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `bills_${new Date().toISOString().slice(0,10)}.csv`; a.click();
 }
-
-function closeModal() { document.getElementById('billModal').style.display = 'none'; }
 
 // ================== EDIT BILL ==================
-let editingSaleId = null;
-let originalSaleData = null;
-let editingItems = [];
-
+let editingSaleId = null, originalSaleData = null, editingItems = [];
 function openEditModal(saleId) {
-    const sale = salesHistoryData.find(s => s.SaleID === saleId);
-    if (!sale) { alert("Sale data not found"); return; }
-
-    editingSaleId = saleId;
-    originalSaleData = JSON.parse(JSON.stringify(sale));
-
+    const sale = salesHistoryData.find(s=>s.SaleID===saleId);
+    if (!sale) return alert('Sale not found');
+    editingSaleId = saleId; originalSaleData = JSON.parse(JSON.stringify(sale));
     document.getElementById('editSaleIdLabel').textContent = saleId;
-    document.getElementById('editCustName').value = sale.CustomerName || '';
-    document.getElementById('editCustAddress').value = sale.Address || '';
-    document.getElementById('editCustCity').value = sale.City || '';
-    document.getElementById('editCustPhone').value = sale.Phone || '';
-
-    const items = sale.Items || [];
-    const subtotal = items.reduce((sum, it) => sum + (it.total || it.price * it.qty), 0);
-    const courier = (sale.GrandTotal || 0) - subtotal;
-    document.getElementById('editCourier').value = Math.max(0, courier).toFixed(2);
-
+    document.getElementById('editCustName').value = sale.CustomerName||'';
+    document.getElementById('editCustAddress').value = sale.Address||'';
+    document.getElementById('editCustCity').value = sale.City||'';
+    document.getElementById('editCustPhone').value = sale.Phone||'';
+    const items = sale.Items||[];
+    document.getElementById('editCourier').value = Math.max(0, (sale.GrandTotal||0) - items.reduce((s,it)=>s+(it.total||it.price*it.qty),0)).toFixed(2);
     editingItems = JSON.parse(JSON.stringify(items));
-    renderEditItems();
-    updateEditTotals();
-
+    renderEditItems(); updateEditTotals();
     document.getElementById('editBillModal').style.display = 'flex';
 }
-
 function renderEditItems() {
-    const tbody = document.getElementById('editItemsBody');
-    tbody.innerHTML = "";
-    editingItems.forEach((item, idx) => {
+    const tbody = document.getElementById('editItemsBody'); tbody.innerHTML = "";
+    editingItems.forEach((item,idx) => {
         const row = document.createElement('tr');
-        row.innerHTML = `
-            <td>${escapeHtml(item.id)}</td>
-            <td>${escapeHtml(item.name)}</td>
-            <td>Rs. ${parseFloat(item.price).toFixed(2)}</td>
-            <td><input type="number" min="1" value="${item.qty}" style="width:70px;" onchange="updateEditItem(${idx}, 'qty', this.value)"></td>
-            <td class="item-total">Rs. ${(parseFloat(item.price) * parseInt(item.qty)).toFixed(2)}</td>
-            <td><button class="btn-red" onclick="removeEditItem(${idx})">🗑️</button></td>
-        `;
+        row.innerHTML = `<td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.name)}</td><td>Rs. ${parseFloat(item.price).toFixed(2)}</td>
+            <td><input type="number" min="1" value="${item.qty}" style="width:70px;" onchange="updateEditItem(${idx},'qty',this.value)"></td>
+            <td class="item-total">Rs. ${(parseFloat(item.price)*parseInt(item.qty)).toFixed(2)}</td>
+            <td><button class="btn-red" onclick="removeEditItem(${idx})">🗑️</button></td>`;
         tbody.appendChild(row);
     });
 }
-
-function updateEditItem(idx, field, value) {
-    if (field === 'qty') {
-        let newQty = parseInt(value);
-        if (isNaN(newQty) || newQty < 1) newQty = 1;
-        editingItems[idx].qty = newQty;
-        const row = document.getElementById('editItemsBody').children[idx];
-        if (row) {
-            row.querySelector('.item-total').textContent = `Rs. ${(parseFloat(editingItems[idx].price) * newQty).toFixed(2)}`;
-        }
-    }
+function updateEditItem(idx, field, val) {
+    if (field==='qty') { let n = parseInt(val); if (isNaN(n)||n<1) n=1; editingItems[idx].qty = n; }
+    const row = document.getElementById('editItemsBody').children[idx];
+    if (row) row.querySelector('.item-total').textContent = `Rs. ${(parseFloat(editingItems[idx].price)*parseInt(editingItems[idx].qty)).toFixed(2)}`;
     updateEditTotals();
 }
-
-function removeEditItem(idx) {
-    editingItems.splice(idx, 1);
-    renderEditItems();
-    updateEditTotals();
-}
-
+function removeEditItem(idx) { editingItems.splice(idx,1); renderEditItems(); updateEditTotals(); }
 function addItemToEditBill() {
-    const selVal = document.getElementById('editItemSearch').value.trim();
-    let qty = parseInt(document.getElementById('editItemQty').value);
-    if (isNaN(qty) || qty < 1) qty = 1;
-    if (!selVal) { alert("Select item"); return; }
-    const idMatch = selVal.match(/^([^\s-]+)/);
-    if (!idMatch) { alert("Invalid item"); return; }
-    const id = idMatch[1];
-    const stockItem = stockData.find(r => String(r[0]) === id);
-    if (!stockItem) { alert("Item not in stock"); return; }
-
-    const existing = editingItems.find(it => it.id === id);
-    if (existing) {
-        existing.qty += qty;
-    } else {
-        editingItems.push({
-            id: String(stockItem[0]),
-            name: stockItem[1],
-            price: parseFloat(stockItem[2]),
-            qty: qty
-        });
-    }
-    renderEditItems();
-    updateEditTotals();
-    document.getElementById('editItemSearch').value = "";
-    document.getElementById('editItemQty').value = 1;
+    const sel = document.getElementById('editItemSearch').value.trim();
+    let qty = parseInt(document.getElementById('editItemQty').value); if (isNaN(qty)||qty<1) qty=1;
+    const match = sel.match(/^([^\s-]+)/); if (!match) return alert('Invalid item');
+    const id = match[1];
+    const stock = stockData.find(r=>String(r[0])===id); if (!stock) return alert('Item not in stock');
+    const exist = editingItems.find(it=>it.id===id);
+    if (exist) exist.qty += qty;
+    else editingItems.push({ id: String(stock[0]), name: stock[1], price: parseFloat(stock[2]), qty });
+    renderEditItems(); updateEditTotals();
+    document.getElementById('editItemSearch').value=""; document.getElementById('editItemQty').value=1;
 }
-
 function updateEditTotals() {
-    const subtotal = editingItems.reduce((sum, it) => sum + (parseFloat(it.price) * parseInt(it.qty)), 0);
-    let courier = parseFloat(document.getElementById('editCourier').value) || 0;
-    if (courier < 0) courier = 0;
-    document.getElementById('editSubtotal').textContent = subtotal.toFixed(2);
-    document.getElementById('editGrandTotal').textContent = (subtotal + courier).toFixed(2);
+    const sub = editingItems.reduce((s,it)=>s+(parseFloat(it.price)*parseInt(it.qty)),0);
+    const cour = parseFloat(document.getElementById('editCourier').value)||0;
+    document.getElementById('editSubtotal').textContent = sub.toFixed(2);
+    document.getElementById('editGrandTotal').textContent = (sub+cour).toFixed(2);
 }
-
-function closeEditModal() {
-    document.getElementById('editBillModal').style.display = 'none';
-    editingSaleId = null;
-    editingItems = [];
-    originalSaleData = null;
-}
-
+function closeEditModal() { document.getElementById('editBillModal').style.display = 'none'; editingSaleId=null; editingItems=[]; originalSaleData=null; }
 async function saveEditedBill() {
     if (!editingSaleId) return;
     const newCustName = document.getElementById('editCustName').value.trim();
-    if (!newCustName) { alert("Customer name required"); return; }
-    if (editingItems.length === 0) { alert("Add at least one item"); return; }
-
-    const newSubtotal = parseFloat(editingItems.reduce((sum, it) => sum + (parseFloat(it.price) * parseInt(it.qty)), 0).toFixed(2));
-    const newCourier = parseFloat(document.getElementById('editCourier').value) || 0;
-    if (newCourier < 0) { alert("Courier cannot be negative"); return; }
-    const newGrandTotal = parseFloat((newSubtotal + newCourier).toFixed(2));
-
-    const originalItems = originalSaleData.Items || [];
-    const origMap = {};
-    originalItems.forEach(it => { origMap[it.id] = (origMap[it.id] || 0) + parseInt(it.qty); });
-    const editMap = {};
-    editingItems.forEach(it => { editMap[it.id] = (editMap[it.id] || 0) + parseInt(it.qty); });
-
+    if (!newCustName || !editingItems.length) return alert('Name & items required');
+    const newSubtotal = parseFloat(editingItems.reduce((s,it)=>s+(parseFloat(it.price)*parseInt(it.qty)),0).toFixed(2));
+    const newCourier = parseFloat(document.getElementById('editCourier').value)||0;
+    const newGrandTotal = parseFloat((newSubtotal+newCourier).toFixed(2));
+    const origMap = {}, editMap = {};
+    (originalSaleData.Items||[]).forEach(it => origMap[it.id] = (origMap[it.id]||0) + parseInt(it.qty));
+    editingItems.forEach(it => editMap[it.id] = (editMap[it.id]||0) + parseInt(it.qty));
     const allIds = new Set([...Object.keys(origMap), ...Object.keys(editMap)]);
     const stockUpdates = {};
-
-    for (const itemId of allIds) {
-        const originalQty = origMap[itemId] || 0;
-        const editedQty = editMap[itemId] || 0;
-        const delta = editedQty - originalQty;
-        if (delta !== 0) stockUpdates[itemId] = delta;
+    for (const id of allIds) {
+        const delta = (editMap[id]||0) - (origMap[id]||0);
+        if (delta !== 0) stockUpdates[id] = delta;
     }
-
-    for (const [itemId, delta] of Object.entries(stockUpdates)) {
-        const stockDocRef = db.collection('stock').doc(itemId);
-        const stockSnap = await stockDocRef.get();
-        if (!stockSnap.exists) {
-            alert(`Stock item "${itemId}" no longer exists. Cannot save.`);
-            return;
-        }
-        const currentQty = stockSnap.data().qty || 0;
-        if (delta > 0 && currentQty < delta) {
-            alert(`Not enough stock for "${itemId}". Available: ${currentQty}, needed extra: ${delta}`);
-            return;
-        }
+    for (const [id, delta] of Object.entries(stockUpdates)) {
+        const snap = await db.collection('stock').doc(id).get();
+        if (!snap.exists) return alert(`Stock ${id} missing`);
+        if (delta > 0 && (snap.data().qty||0) < delta) return alert(`Not enough stock for ${id}`);
     }
-
     const batch = db.batch();
-    for (const [itemId, delta] of Object.entries(stockUpdates)) {
-        const stockRef = db.collection('stock').doc(itemId);
-        batch.update(stockRef, { qty: firebase.firestore.FieldValue.increment(-delta) });
+    for (const [id, delta] of Object.entries(stockUpdates)) {
+        batch.update(db.collection('stock').doc(id), { qty: firebase.firestore.FieldValue.increment(-delta) });
     }
-
-    const updatedSaleData = {
+    batch.set(db.collection('sales').doc(editingSaleId), {
         customerName: newCustName,
         address: document.getElementById('editCustAddress').value.trim(),
         city: document.getElementById('editCustCity').value.trim(),
         phone: document.getElementById('editCustPhone').value.trim(),
-        items: editingItems.map(it => ({
-            id: it.id,
-            name: it.name,
-            price: parseFloat(it.price),
-            qty: parseInt(it.qty),
-            total: parseFloat((parseFloat(it.price) * parseInt(it.qty)).toFixed(2))
-        })),
-        subtotal: newSubtotal,
-        courier: newCourier,
-        grandTotal: newGrandTotal
-    };
-    batch.set(db.collection('sales').doc(editingSaleId), updatedSaleData, { merge: true });
-
-    try {
-        await batch.commit();
-        alert('✅ Bill updated successfully!');
-        closeEditModal();
-        await fetchStock();
-        await searchSales();
-    } catch (err) {
-        alert('❌ Error updating bill: ' + err.message);
-    }
+        items: editingItems.map(it => ({ id: it.id, name: it.name, price: parseFloat(it.price), qty: parseInt(it.qty), total: parseFloat((parseFloat(it.price)*parseInt(it.qty)).toFixed(2)) })),
+        subtotal: newSubtotal, courier: newCourier, grandTotal: newGrandTotal
+    }, { merge: true });
+    await batch.commit();
+    alert('Updated'); closeEditModal(); await fetchStock(); await searchSales();
 }
 
 // ================== REPORTS ==================
 async function openReports() {
     const stockSnap = await db.collection('stock').get();
-    reportStockData = [];
-    stockSnap.forEach(doc => {
-        const d = doc.data();
-        reportStockData.push({ id: doc.id, name: d.name, price: d.price, qty: d.qty });
-    });
-
+    reportStockData = []; stockSnap.forEach(doc => { const d=doc.data(); reportStockData.push({ id:doc.id, name:d.name, price:d.price, qty:d.qty }); });
     const salesSnap = await db.collection('sales').orderBy('timestamp','desc').get();
-    reportSalesData = [];
-    salesSnap.forEach(doc => {
-        const d = doc.data();
-        reportSalesData.push({
-            saleId: doc.id,
-            customer: d.customerName,
-            address: d.address,
-            city: d.city || '',
-            phone: d.phone,
-            date: d.timestamp ? d.timestamp.toDate().toLocaleString('si-LK') : '',
-            total: d.grandTotal,
-            payment: d.paymentStatus || 'unpaid'
-        });
-    });
-
-    let html = '';
-    html += '<div class="report-section"><h3>📦 Stock Items</h3><div class="report-table-container"><table><thead><tr><th>ID</th><th>Name</th><th>Price (Rs.)</th><th>Qty</th><th>Value</th></tr></thead><tbody>';
-    reportStockData.forEach(item => {
-        html += `<tr><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.name)}</td><td>${parseFloat(item.price).toFixed(2)}</td><td>${parseInt(item.qty)}</td><td>${(item.price * item.qty).toFixed(2)}</td></tr>`;
-    });
+    reportSalesData = []; salesSnap.forEach(doc => { const d=doc.data(); reportSalesData.push({ saleId:doc.id, customer:d.customerName, address:d.address, city:d.city||'', phone:d.phone, date:d.timestamp?.toDate().toLocaleString('si-LK')||'', total:d.grandTotal, payment:d.paymentStatus||'unpaid' }); });
+    let html = '<div class="report-section"><h3>📦 Stock</h3><div class="report-table-container"><table><thead><tr><th>ID</th><th>Name</th><th>Price</th><th>Qty</th><th>Value</th></tr></thead><tbody>';
+    reportStockData.forEach(i => html += `<tr><td>${escapeHtml(i.id)}</td><td>${escapeHtml(i.name)}</td><td>${parseFloat(i.price).toFixed(2)}</td><td>${parseInt(i.qty)}</td><td>${(i.price*i.qty).toFixed(2)}</td></tr>`);
     html += '</tbody></table></div></div>';
-
     html += '<div class="report-section"><h3>🧾 All Bills</h3><div class="report-table-container"><table><thead><tr><th>Sale ID</th><th>Customer</th><th>Date</th><th>Total</th><th>Payment</th></tr></thead><tbody>';
-    reportSalesData.forEach(sale => {
-        const paymentText = sale.payment === 'paid' ? '✅ Paid' : '❌ Unpaid';
-        const paymentClass = sale.payment === 'paid' ? 'payment-paid' : 'payment-unpaid';
-        html += `<tr><td>${sale.saleId}</td><td>${escapeHtml(sale.customer)}</td><td>${sale.date}</td><td>Rs. ${parseFloat(sale.total).toFixed(2)}</td><td class="${paymentClass}">${paymentText}</td></tr>`;
-    });
+    reportSalesData.forEach(s => html += `<tr><td>${s.saleId}</td><td>${escapeHtml(s.customer)}</td><td>${s.date}</td><td>Rs. ${parseFloat(s.total).toFixed(2)}</td><td class="${s.payment==='paid'?'payment-paid':'payment-unpaid'}">${s.payment==='paid'?'✅ Paid':'❌ Unpaid'}</td></tr>`);
     html += '</tbody></table></div></div>';
-
-    const paid = reportSalesData.filter(s => s.payment === 'paid');
-    html += '<div class="report-section"><h3>✅ Paid Bills</h3><div class="report-table-container"><table><thead><tr><th>Sale ID</th><th>Customer</th><th>Date</th><th>Total</th></tr></thead><tbody>';
-    paid.forEach(sale => {
-        html += `<tr><td>${sale.saleId}</td><td>${escapeHtml(sale.customer)}</td><td>${sale.date}</td><td>Rs. ${parseFloat(sale.total).toFixed(2)}</td></tr>`;
-    });
-    html += '</tbody></table></div></div>';
-
-    const unpaid = reportSalesData.filter(s => s.payment === 'unpaid');
-    html += '<div class="report-section"><h3>❌ Unpaid Bills</h3><div class="report-table-container"><table><thead><tr><th>Sale ID</th><th>Customer</th><th>Date</th><th>Total</th></tr></thead><tbody>';
-    unpaid.forEach(sale => {
-        html += `<tr><td>${sale.saleId}</td><td>${escapeHtml(sale.customer)}</td><td>${sale.date}</td><td>Rs. ${parseFloat(sale.total).toFixed(2)}</td></tr>`;
-    });
-    html += '</tbody></table></div></div>';
-
     document.getElementById('reportContent').innerHTML = html;
     document.getElementById('reportsModal').style.display = 'flex';
 }
-
-function closeReports() {
-    document.getElementById('reportsModal').style.display = 'none';
-}
-
+function closeReports() { document.getElementById('reportsModal').style.display = 'none'; }
 function exportToExcel() {
     const wb = XLSX.utils.book_new();
-    const stockSheetData = [['ID', 'Name', 'Price', 'Quantity', 'Value']];
-    reportStockData.forEach(item => {
-        stockSheetData.push([item.id, item.name, item.price, item.qty, (item.price * item.qty).toFixed(2)]);
-    });
-    const stockWs = XLSX.utils.aoa_to_sheet(stockSheetData);
-    XLSX.utils.book_append_sheet(wb, stockWs, "Stock");
-
-    const allSalesData = [['Sale ID', 'Customer', 'Date', 'Total', 'Payment']];
-    reportSalesData.forEach(sale => {
-        allSalesData.push([sale.saleId, sale.customer, sale.date, sale.total, sale.payment]);
-    });
-    const allSalesWs = XLSX.utils.aoa_to_sheet(allSalesData);
-    XLSX.utils.book_append_sheet(wb, allSalesWs, "All Sales");
-
-    const paid = reportSalesData.filter(s => s.payment === 'paid');
-    const paidData = [['Sale ID', 'Customer', 'Date', 'Total']];
-    paid.forEach(sale => { paidData.push([sale.saleId, sale.customer, sale.date, sale.total]); });
-    const paidWs = XLSX.utils.aoa_to_sheet(paidData);
-    XLSX.utils.book_append_sheet(wb, paidWs, "Paid");
-
-    const unpaid = reportSalesData.filter(s => s.payment === 'unpaid');
-    const unpaidData = [['Sale ID', 'Customer', 'Date', 'Total']];
-    unpaid.forEach(sale => { unpaidData.push([sale.saleId, sale.customer, sale.date, sale.total]); });
-    const unpaidWs = XLSX.utils.aoa_to_sheet(unpaidData);
-    XLSX.utils.book_append_sheet(wb, unpaidWs, "Unpaid");
-
-    XLSX.writeFile(wb, `Full_Report_${new Date().toISOString().slice(0,10)}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['ID','Name','Price','Qty','Value']].concat(reportStockData.map(i=>[i.id,i.name,i.price,i.qty,(i.price*i.qty).toFixed(2)]))), "Stock");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Sale ID','Customer','Date','Total','Payment']].concat(reportSalesData.map(s=>[s.saleId,s.customer,s.date,s.total,s.payment]))), "All Sales");
+    XLSX.writeFile(wb, `Report_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
-// ================== TAB SWITCHING ==================
-function switchTab(tabName) {
-    document.getElementById('tabStock').classList.toggle('active', tabName === 'stock');
-    document.getElementById('tabPOS').classList.toggle('active', tabName === 'pos');
-    document.getElementById('panelStock').classList.toggle('active', tabName === 'stock');
-    document.getElementById('panelPOS').classList.toggle('active', tabName === 'pos');
-    if (tabName === 'pos') {
-        if (courierChargeEl.value === '' || parseFloat(courierChargeEl.value) === 0) {
-            courierChargeEl.value = defaultCourier;
-        }
-        updateTotals();
-    }
+// ================== TAB SWITCH ==================
+function switchTab(tab) {
+    document.getElementById('tabStock').classList.toggle('active', tab==='stock');
+    document.getElementById('tabPOS').classList.toggle('active', tab==='pos');
+    document.getElementById('panelStock').classList.toggle('active', tab==='stock');
+    document.getElementById('panelPOS').classList.toggle('active', tab==='pos');
+    if (tab==='pos') { if (!parseFloat(courierChargeEl.value)) courierChargeEl.value = defaultCourier; updateTotals(); }
 }
 
-// ================== AI ASSISTANT FUNCTIONS ==================
-function openAIModal() {
-    document.getElementById('aiModal').style.display = 'flex';
-    document.getElementById('aiPrompt').focus();
-}
-
-function closeAIModal() {
-    document.getElementById('aiModal').style.display = 'none';
-    document.getElementById('aiResponse').innerText = 'Your answer will appear here...';
-    document.getElementById('aiPrompt').value = '';
-}
+// ================== AI ASSISTANT (with Hugging Face Fallback) ==================
+function openAIModal() { document.getElementById('aiModal').style.display = 'flex'; document.getElementById('aiPrompt').focus(); }
+function closeAIModal() { document.getElementById('aiModal').style.display = 'none'; document.getElementById('aiResponse').innerText = 'Your answer will appear here...'; document.getElementById('aiPrompt').value = ''; }
 
 function buildSystemContext() {
-    let systemContext = 'Here is the current system data:\n\n';
-
-    if (stockData.length > 0) {
-        const totalQty = stockData.reduce((sum, r) => sum + (parseInt(r[3])||0), 0);
-        const totalValue = stockData.reduce((sum, r) => sum + ((parseInt(r[3])||0) * (parseFloat(r[2])||0)), 0).toFixed(2);
-        const lowStockItems = stockData.filter(r => (parseInt(r[3])||0) > 0 && (parseInt(r[3])||0) <= 5)
-                                   .map(r => `${r[0]} - ${r[1]} (Qty: ${r[3]}, Price: Rs.${r[2]})`).join('; ');
-        systemContext += `--- Stock ---\n`;
-        systemContext += `Total items: ${stockData.length}\n`;
-        systemContext += `Total quantity: ${totalQty}\n`;
-        systemContext += `Total value: Rs. ${totalValue}\n`;
-        systemContext += `Low stock (<=5): ${lowStockItems || 'None'}\n`;
-        const topItems = [...stockData].sort((a,b) => (parseInt(b[3])||0)*(parseFloat(b[2])||0) - (parseInt(a[3])||0)*(parseFloat(a[2])||0)).slice(0,5).map(r => `${r[0]} - ${r[1]} (Value: Rs.${((parseInt(r[3])||0)*(parseFloat(r[2])||0)).toFixed(2)})`).join('; ');
-        systemContext += `Top items by value: ${topItems}\n\n`;
+    let ctx = 'Here is the current system data:\n\n';
+    if (stockData.length) {
+        const tQ = stockData.reduce((s,r)=>s+(parseInt(r[3])||0),0);
+        const tV = stockData.reduce((s,r)=>s+((parseInt(r[3])||0)*(parseFloat(r[2])||0)),0).toFixed(2);
+        const low = stockData.filter(r=>(parseInt(r[3])||0)>0 && (parseInt(r[3])||0)<=5).map(r=>`${r[0]}-${r[1]} (Qty:${r[3]})`).join(', ');
+        ctx += `Stock: ${stockData.length} items, Total qty: ${tQ}, Total value: Rs.${tV}\nLow stock: ${low||'None'}\n`;
     }
-
-    if (salesHistoryData.length > 0) {
-        const recentSales = salesHistoryData.slice(0, 50);
-        const totalRevenue = recentSales.reduce((sum, s) => sum + (parseFloat(s.GrandTotal)||0), 0).toFixed(2);
-        const paidCount = recentSales.filter(s => s.PaymentStatus === 'paid').length;
-        const unpaidCount = recentSales.length - paidCount;
+    if (salesHistoryData.length) {
+        const recent = salesHistoryData.slice(0,50);
+        const rev = recent.reduce((s,b)=>s+(parseFloat(b.GrandTotal)||0),0).toFixed(2);
+        const paid = recent.filter(b=>b.PaymentStatus==='paid').length;
         const today = new Date(); today.setHours(0,0,0,0);
-        const todaySales = salesHistoryData.filter(s => s.Timestamp >= today);
-        const todayTotal = todaySales.reduce((sum, s) => sum + (parseFloat(s.GrandTotal)||0), 0).toFixed(2);
-        
-        const customerMap = {};
-        salesHistoryData.forEach(s => {
-            const name = s.CustomerName || 'Unknown';
-            customerMap[name] = (customerMap[name] || 0) + (parseFloat(s.GrandTotal)||0);
-        });
-        const topCustomers = Object.entries(customerMap).sort((a,b) => b[1]-a[1]).slice(0,5).map(e => `${e[0]} (Rs.${e[1].toFixed(2)})`).join(', ');
-        
-        const cityMap = {};
-        salesHistoryData.forEach(s => {
-            const city = s.City || 'Unknown';
-            cityMap[city] = (cityMap[city] || 0) + (parseFloat(s.GrandTotal)||0);
-        });
-        const topCities = Object.entries(cityMap).sort((a,b) => b[1]-a[1]).slice(0,5).map(e => `${e[0]} (Rs.${e[1].toFixed(2)})`).join(', ');
-        
-        systemContext += `--- Sales (recent 50) ---\n`;
-        systemContext += `Number of bills: ${recentSales.length}\n`;
-        systemContext += `Total revenue (recent): Rs. ${totalRevenue}\n`;
-        systemContext += `Paid bills: ${paidCount}, Unpaid bills: ${unpaidCount}\n`;
-        systemContext += `Today's sales: ${todaySales.length} bills, Total: Rs. ${todayTotal}\n`;
-        systemContext += `Top customers by total spend: ${topCustomers}\n`;
-        systemContext += `Top cities by revenue: ${topCities}\n`;
-        
-        const unpaidBills = salesHistoryData.filter(s => s.PaymentStatus === 'unpaid').slice(0,10);
-        if (unpaidBills.length > 0) {
-            const unpaidList = unpaidBills.map(b => `${b.SaleID} - ${b.CustomerName} (Rs.${parseFloat(b.GrandTotal).toFixed(2)}, ${b.Timestamp.toLocaleDateString('si-LK')})`).join('; ');
-            systemContext += `Unpaid bills sample: ${unpaidList}\n`;
-        }
+        const todaySales = salesHistoryData.filter(b=>b.Timestamp>=today);
+        ctx += `Sales (recent 50): ${recent.length} bills, Revenue: Rs.${rev}, Paid: ${paid}, Unpaid: ${recent.length-paid}\nToday: ${todaySales.length} bills, Rs.${todaySales.reduce((s,b)=>s+(parseFloat(b.GrandTotal)||0),0).toFixed(2)}\n`;
     }
-
-    return systemContext;
+    return ctx;
 }
 
-function askQuick(prompt) {
-    document.getElementById('aiPrompt').value = prompt;
-    askAI();
-}
+function askQuick(prompt) { document.getElementById('aiPrompt').value = prompt; askAI(); }
 
 async function generateReminder() {
-    const unpaidBills = salesHistoryData.filter(s => s.PaymentStatus === 'unpaid');
-    if (unpaidBills.length === 0) {
-        document.getElementById('aiPrompt').value = 'No unpaid bills';
-        askAI();
-        return;
-    }
-    const selectedUnpaid = selectedSales.size > 0 ? unpaidBills.filter(b => selectedSales.has(b.SaleID)) : unpaidBills.slice(0,3);
-    const billList = selectedUnpaid.map(b => `- ${b.SaleID}: ${b.CustomerName}, Rs.${parseFloat(b.GrandTotal).toFixed(2)}`).join('\n');
-    const prompt = `Generate a polite WhatsApp reminder message in Sinhala and English for these unpaid bills:\n${billList}`;
-    document.getElementById('aiPrompt').value = prompt;
+    const unpaid = salesHistoryData.filter(s=>s.PaymentStatus==='unpaid');
+    if (!unpaid.length) { document.getElementById('aiPrompt').value='No unpaid bills'; askAI(); return; }
+    const selected = selectedSales.size>0 ? unpaid.filter(b=>selectedSales.has(b.SaleID)) : unpaid.slice(0,3);
+    const list = selected.map(b=>`- ${b.SaleID}: ${b.CustomerName}, Rs.${parseFloat(b.GrandTotal).toFixed(2)}`).join('\n');
+    document.getElementById('aiPrompt').value = `Generate WhatsApp reminder in Sinhala & English for:\n${list}`;
     askAI();
 }
 
-// Voice input for AI questions (kept)
 function startVoiceInput() {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        alert('Voice input not supported in your browser. Use Chrome.');
-        return;
-    }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'si-LK';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-    
-    recognition.start();
-    recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        document.getElementById('aiPrompt').value = transcript;
-        askAI();
-    };
-    recognition.onerror = (event) => {
-        alert('Voice error: ' + event.error);
-    };
+    if (!SpeechRecognition) return alert('Voice not supported');
+    const rec = new SpeechRecognition(); rec.lang = 'si-LK';
+    rec.onresult = e => { document.getElementById('aiPrompt').value = e.results[0][0].transcript; askAI(); };
+    rec.onerror = e => alert('Voice error: '+e.error);
+    rec.start();
 }
 
 async function askAI() {
     const prompt = document.getElementById('aiPrompt').value.trim();
-    const responseDiv = document.getElementById('aiResponse');
-    const askBtn = document.getElementById('askAiBtn');
+    const respDiv = document.getElementById('aiResponse');
+    const btn = document.getElementById('askAiBtn');
+    if (!prompt) { respDiv.innerText = '⚠️ Enter a question'; return; }
+    btn.disabled = true; btn.textContent = '⏳ Thinking...';
+    respDiv.innerText = 'Processing...';
 
-    if (!prompt) {
-        responseDiv.innerText = '⚠️ Please enter a question.';
-        return;
-    }
-
-    askBtn.disabled = true;
-    askBtn.textContent = '⏳ Thinking...';
-    responseDiv.innerText = 'Gathering system data...';
+    const systemContext = buildSystemContext();
+    const isSinhala = /[\u0D80-\u0DFF]/.test(prompt);
+    const fullPrompt = `${systemContext}\n\n${isSinhala?'Reply in Sinhala.':''}\nUser: ${prompt}`;
 
     try {
-        const systemContext = buildSystemContext();
-        const isSinhala = /[\u0D80-\u0DFF]/.test(prompt);
-        const languageInstruction = isSinhala ? 'Please reply in Sinhala language.' : 'Please reply in the same language as the user.';
-        
-        const fullPrompt = `${systemContext}\n\n${languageInstruction}\nBased on the above data, please answer the user's question:\nUser: ${prompt}`;
         const answer = await puter.ai.chat(fullPrompt, { model: 'gpt-4o' });
-        responseDiv.innerText = answer;
-    } catch (err) {
-        console.error(err);
-        responseDiv.innerText = '❌ Error: ' + err.message;
+        respDiv.innerText = answer;
+    } catch (putError) {
+        console.warn('Puter failed, trying Hugging Face...', putError);
+        if (HF_TOKEN === "hf_your_token_here") {
+            respDiv.innerText = '❌ AI limit reached. Add your Hugging Face token (free) to enable fallback.\nGet token: https://huggingface.co/settings/tokens';
+        } else {
+            try {
+                const hfRes = await fetch('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2', {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${HF_TOKEN}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ inputs: fullPrompt, parameters: { max_new_tokens: 500 } })
+                });
+                const data = await hfRes.json();
+                if (data.error) throw new Error(data.error);
+                const text = Array.isArray(data) ? data[0].generated_text : data.generated_text;
+                const idx = text.lastIndexOf('User:');
+                respDiv.innerText = idx > -1 ? text.substring(idx + 'User:'.length).trim() : text;
+            } catch (hfErr) {
+                respDiv.innerText = `❌ All AI services failed.\nPuter: ${putError.message}\nHF: ${hfErr.message}`;
+            }
+        }
     } finally {
-        askBtn.disabled = false;
-        askBtn.textContent = '🔮 Ask';
+        btn.disabled = false; btn.textContent = '🔮 Ask';
     }
 }
 </script>
