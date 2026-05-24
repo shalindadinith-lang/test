@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>Smart Stock + POS (Firebase) - with AI Assistant</title>
+    <title>Smart Stock + POS (Firebase) - with AI & Voice POS</title>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
     <script src="https://js.puter.com/v2/"></script>
     <style>
-        /* ... existing styles remain exactly the same ... */
         * { box-sizing: border-box; font-family: 'Segoe UI', system-ui, Arial, sans-serif; }
         body { background: #eef2f7; margin: 0; padding: 20px; }
         #loginScreen { max-width: 400px; margin: 80px auto; background: white; padding: 40px; border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); text-align: center; }
@@ -89,8 +88,6 @@
         .quick-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
         .quick-actions button { font-size: 0.8rem; padding: 6px 12px; }
         .voice-btn { background: #ff9800; }
-        .image-upload-label { cursor: pointer; background: #795548; color: white; padding: 8px 16px; border-radius: 40px; font-weight: bold; display: inline-block; }
-        #imageUploadInput { display: none; }
     </style>
 </head>
 <body>
@@ -169,6 +166,7 @@
                         <datalist id="itemList"></datalist>
                         <input type="number" id="itemQty" placeholder="Qty" value="1" min="1" style="max-width:100px;">
                         <button id="addToCartBtn" class="btn-green">➕ Add to Cart</button>
+                        <button id="voicePosBtn" class="voice-btn" onclick="startVoicePOS()" title="Voice Command for POS">🎤 Voice</button>
                     </div>
                     <div id="posMsg" class="msg-area"></div>
                 </div>
@@ -326,9 +324,7 @@
             <button class="btn-orange" onclick="askQuick('Give me a sales forecast for next week')">💹 Sales Forecast</button>
             <button class="btn-green" onclick="askQuick('Analyze pricing and suggest optimal prices for maximum profit')">💸 Price Optimization</button>
             <button class="btn-green" onclick="generateReminder()">✉️ Generate Reminder</button>
-            <button class="voice-btn" onclick="startVoiceInput()">🎤 Voice Command</button>
-            <label for="imageUploadInput" class="image-upload-label">🖼️ Image Recognition</label>
-            <input type="file" id="imageUploadInput" accept="image/*" onchange="handleImageUpload(event)">
+            <button class="voice-btn" onclick="startVoiceInput()">🎤 Voice Question</button>
         </div>
         <textarea id="aiPrompt" rows="3" placeholder="Ask anything about stock, sales, or business..."></textarea>
         <div id="aiResponse">Your answer will appear here...</div>
@@ -697,7 +693,6 @@ function exportStockCSV() {
     showStockMsg("Stock CSV downloaded");
 }
 
-// EXPORT SALES CSV
 async function exportSalesCSV() {
     try {
         const snapshot = await db.collection('sales').orderBy('timestamp', 'desc').get();
@@ -758,6 +753,98 @@ function onItemSelect() {
     const item = stockData.find(row => String(row[0]) === idPart);
     if (item) itemSearch.value = `${item[0]} - ${item[1]} (Rs.${item[2]})`;
 }
+
+// ================== VOICE POS COMMAND PROCESSOR ==================
+function startVoicePOS() {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+        alert('Voice input not supported. Use Chrome.');
+        return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'si-LK';  // mix Sinhala/English
+    recognition.interimResults = false;
+    recognition.start();
+
+    showPosMsg("🎤 Listening... Speak command");
+    recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript.toLowerCase().trim();
+        processVoiceCommand(transcript);
+    };
+    recognition.onerror = (event) => {
+        showPosMsg("Voice error: " + event.error, true);
+    };
+}
+
+function processVoiceCommand(transcript) {
+    // Simple command parser
+    let msg = '';
+    // Add item: "add 5 of AP101" / "add 2 bread" / "add item 101 qty 3"
+    const addRegex = /add\s+(\d+)\s+(?:of\s+)?(.+)/i;
+    const addMatch = transcript.match(addRegex);
+    if (addMatch) {
+        const qty = parseInt(addMatch[1]);
+        const itemIdentifier = addMatch[2].trim();
+        // find item by id or name
+        let foundItem = stockData.find(row => String(row[0]).toLowerCase() === itemIdentifier);
+        if (!foundItem) {
+            foundItem = stockData.find(row => row[1].toLowerCase().includes(itemIdentifier));
+        }
+        if (foundItem) {
+            const id = foundItem[0];
+            const available = parseInt(foundItem[3]) || 0;
+            if (qty > available) {
+                showPosMsg(`Voice: Only ${available} in stock for ${foundItem[1]}`, true);
+                return;
+            }
+            const existing = cart.find(c => c.id === id);
+            if (existing) {
+                if (existing.qty + qty > available) {
+                    showPosMsg(`Voice: Not enough stock`, true);
+                    return;
+                }
+                existing.qty += qty;
+            } else {
+                cart.push({ id: String(id), name: foundItem[1], price: parseFloat(foundItem[2]), qty });
+            }
+            renderCart(); updateTotals();
+            showPosMsg(`✅ Added ${qty} ${foundItem[1]} via voice`);
+        } else {
+            showPosMsg("Voice: Item not found", true);
+        }
+        return;
+    }
+
+    // Confirm bill
+    if (transcript.includes('confirm bill') || transcript.includes('bill confirm') || transcript.includes('බිල confirm')) {
+        confirmSaleBtn.click();
+        return;
+    }
+
+    // Clear cart
+    if (transcript.includes('clear cart') || transcript.includes('cart clear') || transcript.includes('කාට් එක clear')) {
+        cart = [];
+        renderCart();
+        updateTotals();
+        showPosMsg("🗑️ Cart cleared via voice");
+        return;
+    }
+
+    // Courier charge: "courier 500" / "set courier 300"
+    const courierRegex = /courier\s+(\d+)/i;
+    const courierMatch = transcript.match(courierRegex);
+    if (courierMatch) {
+        const charge = parseFloat(courierMatch[1]);
+        courierChargeEl.value = charge;
+        updateTotals();
+        showPosMsg(`🚚 Courier set to Rs.${charge}`);
+        return;
+    }
+
+    showPosMsg("Voice command not recognized. Try: 'add 2 of [id/name]', 'confirm bill', 'clear cart'", true);
+}
+
+// ================== POS MANUAL ==================
 document.getElementById('addToCartBtn').onclick = () => {
     const qty = parseInt(itemQty.value) || 1;
     if (qty <= 0) { showPosMsg("Invalid quantity", true); return; }
@@ -780,6 +867,7 @@ document.getElementById('addToCartBtn').onclick = () => {
     itemSearch.value = ""; itemQty.value = 1;
     showPosMsg("Added to cart");
 };
+
 function renderCart() {
     cartBody.innerHTML = "";
     cart.forEach((item, idx) => {
@@ -1298,7 +1386,6 @@ async function printSelectedBills() {
     setTimeout(() => { printWindow.close(); }, 500);
 }
 
-// Download selected bills
 async function downloadSelectedBills() {
     if (selectedSales.size === 0) { 
         alert("Please select at least one bill."); 
@@ -1657,11 +1744,9 @@ function closeAIModal() {
     document.getElementById('aiPrompt').value = '';
 }
 
-// Build comprehensive system context for AI
 function buildSystemContext() {
     let systemContext = 'Here is the current system data:\n\n';
 
-    // Stock summary
     if (stockData.length > 0) {
         const totalQty = stockData.reduce((sum, r) => sum + (parseInt(r[3])||0), 0);
         const totalValue = stockData.reduce((sum, r) => sum + ((parseInt(r[3])||0) * (parseFloat(r[2])||0)), 0).toFixed(2);
@@ -1672,12 +1757,10 @@ function buildSystemContext() {
         systemContext += `Total quantity: ${totalQty}\n`;
         systemContext += `Total value: Rs. ${totalValue}\n`;
         systemContext += `Low stock (<=5): ${lowStockItems || 'None'}\n`;
-        // Include top 5 items by value
         const topItems = [...stockData].sort((a,b) => (parseInt(b[3])||0)*(parseFloat(b[2])||0) - (parseInt(a[3])||0)*(parseFloat(a[2])||0)).slice(0,5).map(r => `${r[0]} - ${r[1]} (Value: Rs.${((parseInt(r[3])||0)*(parseFloat(r[2])||0)).toFixed(2)})`).join('; ');
         systemContext += `Top items by value: ${topItems}\n\n`;
     }
 
-    // Sales summary (last 50 sales for performance)
     if (salesHistoryData.length > 0) {
         const recentSales = salesHistoryData.slice(0, 50);
         const totalRevenue = recentSales.reduce((sum, s) => sum + (parseFloat(s.GrandTotal)||0), 0).toFixed(2);
@@ -1687,7 +1770,6 @@ function buildSystemContext() {
         const todaySales = salesHistoryData.filter(s => s.Timestamp >= today);
         const todayTotal = todaySales.reduce((sum, s) => sum + (parseFloat(s.GrandTotal)||0), 0).toFixed(2);
         
-        // Top customers
         const customerMap = {};
         salesHistoryData.forEach(s => {
             const name = s.CustomerName || 'Unknown';
@@ -1695,7 +1777,6 @@ function buildSystemContext() {
         });
         const topCustomers = Object.entries(customerMap).sort((a,b) => b[1]-a[1]).slice(0,5).map(e => `${e[0]} (Rs.${e[1].toFixed(2)})`).join(', ');
         
-        // City wise sales
         const cityMap = {};
         salesHistoryData.forEach(s => {
             const city = s.City || 'Unknown';
@@ -1711,7 +1792,6 @@ function buildSystemContext() {
         systemContext += `Top customers by total spend: ${topCustomers}\n`;
         systemContext += `Top cities by revenue: ${topCities}\n`;
         
-        // Unpaid bills list (first 10)
         const unpaidBills = salesHistoryData.filter(s => s.PaymentStatus === 'unpaid').slice(0,10);
         if (unpaidBills.length > 0) {
             const unpaidList = unpaidBills.map(b => `${b.SaleID} - ${b.CustomerName} (Rs.${parseFloat(b.GrandTotal).toFixed(2)}, ${b.Timestamp.toLocaleDateString('si-LK')})`).join('; ');
@@ -1722,13 +1802,11 @@ function buildSystemContext() {
     return systemContext;
 }
 
-// Quick action from buttons
 function askQuick(prompt) {
     document.getElementById('aiPrompt').value = prompt;
     askAI();
 }
 
-// Generate reminder for selected unpaid bills
 async function generateReminder() {
     const unpaidBills = salesHistoryData.filter(s => s.PaymentStatus === 'unpaid');
     if (unpaidBills.length === 0) {
@@ -1743,7 +1821,7 @@ async function generateReminder() {
     askAI();
 }
 
-// Voice input using Web Speech API
+// Voice input for AI questions (kept)
 function startVoiceInput() {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
         alert('Voice input not supported in your browser. Use Chrome.');
@@ -1751,7 +1829,7 @@ function startVoiceInput() {
     }
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
-    recognition.lang = 'si-LK'; // Sinhala first, fallback to English
+    recognition.lang = 'si-LK';
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
     
@@ -1759,7 +1837,6 @@ function startVoiceInput() {
     recognition.onresult = (event) => {
         const transcript = event.results[0][0].transcript;
         document.getElementById('aiPrompt').value = transcript;
-        // Optionally auto-send
         askAI();
     };
     recognition.onerror = (event) => {
@@ -1767,29 +1844,6 @@ function startVoiceInput() {
     };
 }
 
-// Image upload and recognition
-function handleImageUpload(event) {
-    const file = event.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const base64Image = e.target.result;
-        document.getElementById('aiResponse').innerText = 'Analyzing image...';
-        try {
-            // Use Puter.js chat with image message
-            const answer = await puter.ai.chat([
-                { type: 'text', content: 'Identify the product in this image. If it matches any item in our stock list, suggest the item ID and name. Also check if it is low in stock.' },
-                { type: 'image', content: base64Image }
-            ], { model: 'gpt-4o' });
-            document.getElementById('aiResponse').innerText = answer;
-        } catch (err) {
-            document.getElementById('aiResponse').innerText = 'Image analysis failed: ' + err.message;
-        }
-    };
-    reader.readAsDataURL(file);
-}
-
-// Main AI ask function with context
 async function askAI() {
     const prompt = document.getElementById('aiPrompt').value.trim();
     const responseDiv = document.getElementById('aiResponse');
@@ -1806,7 +1860,6 @@ async function askAI() {
 
     try {
         const systemContext = buildSystemContext();
-        // Detect language: if prompt contains Sinhala characters, instruct AI to reply in Sinhala
         const isSinhala = /[\u0D80-\u0DFF]/.test(prompt);
         const languageInstruction = isSinhala ? 'Please reply in Sinhala language.' : 'Please reply in the same language as the user.';
         
