@@ -311,7 +311,7 @@
 <button id="aiFloatingBtn" onclick="openAIModal()">🤖 AI Help</button>
 <div id="aiModal" class="modal-overlay" style="z-index:1001;">
     <div class="ai-chat-container">
-        <h3>🤖 AI Assistant (GPT-4o / Hugging Face)</h3>
+        <h3>🤖 AI Assistant (Puter + Pollinations)</h3>
         <div class="quick-actions">
             <button class="btn-blue" onclick="askQuick('Show low stock items')">⚠️ Low Stock</button>
             <button class="btn-blue" onclick="askQuick('Show today\'s sales summary')">📈 Today Sales</button>
@@ -346,10 +346,6 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
-
-// ================== HUGGING FACE TOKEN ==================
-// ඔබේ නොමිලේ Hugging Face token එක https://huggingface.co/settings/tokens වෙතින් ලබාගෙන පහත දාන්න
-const HF_TOKEN = "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"; // <-- මෙතනට ඔබේ token එක දාන්න
 
 // Global variables
 let stockData = [], filteredStock = [], cart = [], selectedSales = new Set();
@@ -1089,7 +1085,7 @@ function switchTab(tab) {
     if (tab==='pos') { if (!parseFloat(courierChargeEl.value)) courierChargeEl.value = defaultCourier; updateTotals(); }
 }
 
-// ================== AI ASSISTANT (with Hugging Face Fallback) ==================
+// ================== AI ASSISTANT (Puter + Pollinations Fallback) ==================
 function openAIModal() { document.getElementById('aiModal').style.display = 'flex'; document.getElementById('aiPrompt').focus(); }
 function closeAIModal() { document.getElementById('aiModal').style.display = 'none'; document.getElementById('aiResponse').innerText = 'Your answer will appear here...'; document.getElementById('aiPrompt').value = ''; }
 
@@ -1142,30 +1138,27 @@ async function askAI() {
 
     const systemContext = buildSystemContext();
     const isSinhala = /[\u0D80-\u0DFF]/.test(prompt);
-    const fullPrompt = `${systemContext}\n\n${isSinhala?'Reply in Sinhala.':''}\nUser: ${prompt}`;
+    const fullPrompt = `${systemContext}\n\n${isSinhala ? 'Reply in Sinhala.' : ''}\nUser: ${prompt}`;
 
+    // Primary: Puter.js
     try {
         const answer = await puter.ai.chat(fullPrompt, { model: 'gpt-4o' });
         respDiv.innerText = answer;
     } catch (putError) {
-        console.warn('Puter failed, trying Hugging Face...', putError);
-        if (HF_TOKEN === "hf_your_token_here") {
-            respDiv.innerText = '❌ AI limit reached. Add your Hugging Face token (free) to enable fallback.\nGet token: https://huggingface.co/settings/tokens';
-        } else {
-            try {
-                const hfRes = await fetch('https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2', {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${HF_TOKEN}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ inputs: fullPrompt, parameters: { max_new_tokens: 500 } })
-                });
-                const data = await hfRes.json();
-                if (data.error) throw new Error(data.error);
-                const text = Array.isArray(data) ? data[0].generated_text : data.generated_text;
-                const idx = text.lastIndexOf('User:');
-                respDiv.innerText = idx > -1 ? text.substring(idx + 'User:'.length).trim() : text;
-            } catch (hfErr) {
-                respDiv.innerText = `❌ All AI services failed.\nPuter: ${putError.message}\nHF: ${hfErr.message}`;
-            }
+        console.warn('Puter failed, falling back to Pollinations.AI...', putError);
+        // Fallback: Pollinations.AI (completely free, no API key required)
+        try {
+            const pollRes = await fetch('https://text.pollinations.ai/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: fullPrompt })
+            });
+            if (!pollRes.ok) throw new Error(`HTTP ${pollRes.status}`);
+            const text = await pollRes.text();
+            respDiv.innerText = text || 'No response from Pollinations.';
+        } catch (pollError) {
+            console.error('Pollinations fallback also failed.', pollError);
+            respDiv.innerText = `❌ AI services unavailable. Please try again later.\nPuter: ${putError.message}\nPollinations: ${pollError.message}`;
         }
     } finally {
         btn.disabled = false; btn.textContent = '🔮 Ask';
